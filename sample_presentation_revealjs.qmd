@@ -1,0 +1,299 @@
+---
+title: "Quantitative strategies on High Frequency Data"
+subtitle: "submission of research project"
+author: "Team members: Joanna Misiak and Agata Tomaszewska"
+date: 01/20/2026
+date-format: "MMM D, YYYY"
+format: 
+    revealjs:
+        fig-width: 14
+        fig-height: 8
+        center: true
+        theme: simple
+        fig-align: center
+
+
+---
+
+## Approaches undertaken {.center}
+
+To find the best strategy we considered:  
+- two intersecting moving averages  
+- a single moving average and a selected volatility measure   
+For each approach we considered a trend following and mean reverting strategy. 
+We tried pair-trading (both based on prices and returns) and portfolio based on the assets volatility. **However, the best results were obtained with single asset trading.** 
+
+We considered several combinations of parameters:  
+- slow and fast EMAs for two intersecting moving averages  
+- signal and slow EMAs for volatility breakout strategies  
+- volatilities and multipliers of the lower-upper thresholds for VB.
+
+## Approaches undertaken (cont'd)
+
+
+For pair trading attempt, addtional filtering was applied. Filters based on correlation, cointegration and regression were applied, but none of them improved the overall results. 
+
+For the final, single asset trades, **stop-loss condition** was added. If the cumulative PnL for the day was lower than $500 and $1000, for group 1 and 2 respectively, trades for the day were stopped.
+
+To find the best strategy, we looked at the **sum of the final statistic for each quarter.**
+
+
+## Finally selected strategy for **group 1**
+
+
+As a result of the trial and error process, we have ended with volatility breakout model for **SP** with signal and slow EMA of 30 and 240 respectively. The window length used in volatilities calculation was set to 120, while the multiplier for lower and upper threshold was set to 1. The stop-loss assumption was set as maximum of $500 loss per day.
+
+
+<!-- here you can include code chunk that applies the strategy for group 1 and calculates all the summary statistics
+-->
+
+```{python}
+#|echo: false
+#| output: false
+import runpy
+
+runpy.run_path("your_final_strategy_group1.py")
+``` 
+
+
+## Summary of results for **group 1**
+
+```{python}
+#| echo: false
+
+# import the csv file with strategy results
+import pandas as pd
+summary_data1_all_quarters = pd.read_csv("summary_data1_all_quarters.csv")
+
+# Format the table
+numeric_cols = summary_data1_all_quarters.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    summary_data1_all_quarters.style
+    .format("{:.2f}", subset=numeric_cols)   # format numbers only
+    .set_properties(**{"text-align": "right"})  
+    .set_table_styles([
+        {"selector": "th", "props": [("font-size", "20px")]},
+        {"selector": "td", "props": [("font-size", "20px")]}
+    ])
+    .hide(axis = "index")   # << hides the index
+)
+styled_table
+```
+The overall results look good - net Sharpe Ratio and net PnL is negative only for one quarter, Q1 2025. Net PnL is the highest for first and last analyzed quarter. Final statistics sum up to **28,57**.
+
+
+## Equity line for **group 1** -- 2023Q1
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data1_2023_Q1.png")
+```
+
+
+We can see that both gross and net cumulative PnL are rising. Small gap between the, indicating low costs.
+
+## Equity line for **group 1** -- 2023Q3
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data1_2023_Q3.png")
+```
+
+
+More volatility can be observed - also bigger difference bewteen gross and net PnL. However, still positive PnL.
+
+## Equity line for **group 1** -- 2023Q4
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data1_2023_Q4.png")
+```
+Rising trend of both gross and net PnL. Strategy behavior is consistent. A little divergence can be observed over time.
+
+
+## Equity line for **group 1** -- 2024Q2
+
+```{python}
+#| echo: false
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data1_2024_Q2.png")
+```
+The start of the quarter was really good - gross and net PnL close together and rising quickly. However, the second half of the quarter it turned into losing startegy. 
+
+## Equity line for **group 1** -- 2024Q4
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data1_2024_Q4.png")
+```
+Strong, upward trend for both gross and net PnL. Final cumulative net PnL is lower than it could be - strong decrease in last couple of days.
+
+
+## Equity line for **group 1** -- 2025Q1
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data1_2025_Q1.png")
+```
+Strongly volatile both gross and net PnL - mostly in the negative values. Not the best strategy for this quarter.
+
+
+## Equity line for **group 1** -- 2025Q2
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data1_2025_Q2.png")
+```
+Sharp increase in first 15 days with low costs. Then stable for the rest of the quarter - strong final cumulative net PnL of more than $18,000.
+
+## Finally selected strategy for **group 2**
+
+As a result of the trial and error process, we have ended with volatility breakout model for **XAG** with signal and slow EMA of 30 and 240 respectively. The window length used in volatilities calculation was set to 60, while the multiplier for lower and upper threshold was set to 1. The stop-loss assumption was set as maximum of $1000 loss per day.
+
+## Summary of results for **group 2**
+
+<!-- here you can include code chunk that applies the strategy for group 1 and calculates all the summary statistics
+-->
+
+```{python}
+#|echo: false
+#| output: false
+import runpy
+
+runpy.run_path("your_final_strategy_group2.py")
+```
+
+
+
+```{python}
+#| echo: false
+#| fig-align: center
+
+# import the csv file with strategy results
+import pandas as pd
+summary_data2_all_quarters = pd.read_csv("summary_data2_all_quarters.csv")
+
+# Format the table
+numeric_cols = summary_data2_all_quarters.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    summary_data2_all_quarters.style
+    .format("{:.2f}", subset=numeric_cols)   # format numbers only
+    .set_properties(**{"text-align": "right"})  
+    .set_table_styles([
+        {"selector": "th", "props": [("font-size", "20px")]},
+        {"selector": "td", "props": [("font-size", "20px")]}
+    ])
+    .hide(axis = "index")   # << hides the index
+)
+styled_table
+```
+
+The overall results look good - net Sharpe Ratio and net PnL is negative for two quarter, Q3 2023 and Q1 2025. Average number of transaction is more than 2 trades per day. Final statistics sum up to **24,11**.
+
+## Equity line for **group 1** -- 2023Q1
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2023_Q1.png")
+```
+
+Steady, growing trend indicates profitable strategy. Little gap between gross and net PnL means low total transaction costs.
+
+## Equity line for **group 2** -- 2023Q3
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2023_Q3.png")
+```
+
+Strategy started off strong - quick increase of both gross and net PnL. However, higher volatility in the second part of the quarter resulted in final negative cumulative net PnL.
+
+## Equity line for **group 2** -- 2023Q4
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2023_Q4.png")
+```
+
+Strong and steady start, resulting in almost $20,000 net PnL at peak. Followed by rapid decline and steady end of a quarter. 
+
+
+## Equity line for **group 2** -- 2024Q2
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2024_Q2.png")
+```
+
+Steady increase in both gross and net PnL, indicating stable startegy. Little gap between the lines shows low total transaction costs (low trade number). Peak PnL at $30,000.
+
+## Equity line for **group 2** -- 2024Q4
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2024_Q4.png")
+```
+Strong, upward trade with little volatility. Gross and net PnL lines close togetger, indicating low tota transaction costs.
+
+## Equity line for **group 2** -- 2025Q1
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2025_Q1.png")
+```
+Strong, downward trend with high volatility in second half of the quarter. Negative values indicates losing startegy.
+
+## Equity line for **group 2** -- 2025Q2
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2025_Q2.png")
+```
+
+Highly volatile results - slow start with strong losses, turning into positive final cumulative net PnL. Slow growth of the gap between gross and net PnL.
+
+## Summary and conclusions
+
+Overall results of the startegies are good. Both startegies ended up with positive statistic values for most of the quarters - **28 and 24 for group 1 and 2** respectively. The implementation of stop-loss condition had the biggest impact on the results, making the strategies profitable. 
