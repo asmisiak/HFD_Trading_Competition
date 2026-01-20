@@ -8,9 +8,9 @@ format:
     revealjs:
         fig-width: 14
         fig-height: 8
-        center: true
         theme: simple
         fig-align: center
+        embed-resources: true
 
 
 ---
@@ -41,7 +41,7 @@ To find the best strategy, we looked at the **sum of the final statistic for eac
 ## Finally selected strategy for **group 1**
 
 
-As a result of the trial and error process, we have ended with volatility breakout model for **SP** with signal and slow EMA of 30 and 240 respectively. The window length used in volatilities calculation was set to 120, while the multiplier for lower and upper threshold was set to 1. The stop-loss assumption was set as maximum of $500 loss per day.
+As a result of the trial and error process, we have ended with volatility breakout model with momentum strategy for **SP** with signal and slow EMA of 30 and 240 respectively. The window length used in volatilities calculation was set to 120, while the multiplier for lower and upper threshold was set to 1. The stop-loss assumption was set as maximum of $500 loss per day.
 
 
 <!-- here you can include code chunk that applies the strategy for group 1 and calculates all the summary statistics
@@ -168,7 +168,7 @@ Sharp increase in first 15 days with low costs. Then stable for the rest of the 
 
 ## Finally selected strategy for **group 2**
 
-As a result of the trial and error process, we have ended with volatility breakout model for **XAG** with signal and slow EMA of 30 and 240 respectively. The window length used in volatilities calculation was set to 60, while the multiplier for lower and upper threshold was set to 1. The stop-loss assumption was set as maximum of $1000 loss per day.
+As a result of the trial and error process, we have ended with volatility breakout model with momentum strategy for **XAG** with signal and slow EMA of 30 and 240 respectively. The window length used in volatilities calculation was set to 60, while the multiplier for lower and upper threshold was set to 1. The stop-loss assumption was set as maximum of $1000 loss per day.
 
 ## Summary of results for **group 2**
 
@@ -209,9 +209,9 @@ styled_table = (
 styled_table
 ```
 
-The overall results look good - net Sharpe Ratio and net PnL is negative for two quarter, Q3 2023 and Q1 2025. Average number of transaction is more than 2 trades per day. Final statistics sum up to **24,11**.
+The overall results look good - net Sharpe Ratio and net PnL is positive for all quarters. Average number of transaction is less than 2 trades per day. Final statistics sum up to **48,67**.
 
-## Equity line for **group 1** -- 2023Q1
+## Equity line for **group 2** -- 2023Q1
 
 ```{python}
 #| echo: false
@@ -221,7 +221,7 @@ from IPython.display import Image
 Image(filename="data2_2023_Q1.png")
 ```
 
-Steady, growing trend indicates profitable strategy. Little gap between gross and net PnL means low total transaction costs.
+Little volatility in the first half of the quarter. However, later steady, growing trend indicates profitable strategy. 
 
 ## Equity line for **group 2** -- 2023Q3
 
@@ -233,7 +233,7 @@ from IPython.display import Image
 Image(filename="data2_2023_Q3.png")
 ```
 
-Strategy started off strong - quick increase of both gross and net PnL. However, higher volatility in the second part of the quarter resulted in final negative cumulative net PnL.
+Strategy started off strong - quick increase of both gross and net PnL. Little gap between gross and net PnL means low total transaction costs.
 
 ## Equity line for **group 2** -- 2023Q4
 
@@ -245,7 +245,7 @@ from IPython.display import Image
 Image(filename="data2_2023_Q4.png")
 ```
 
-Strong and steady start, resulting in almost $20,000 net PnL at peak. Followed by rapid decline and steady end of a quarter. 
+Slow start with balancing on the profitability edge. Later, followed by rapid increase and steady end of the quarter. 
 
 
 ## Equity line for **group 2** -- 2024Q2
@@ -280,7 +280,7 @@ Strong, upward trade with little volatility. Gross and net PnL lines close toget
 from IPython.display import Image
 Image(filename="data2_2025_Q1.png")
 ```
-Strong, downward trend with high volatility in second half of the quarter. Negative values indicates losing startegy.
+Strong, upward trend with high volatility in second half of the quarter. Ending culmulative net PnL strong at more that $20,000.
 
 ## Equity line for **group 2** -- 2025Q2
 
@@ -292,8 +292,8 @@ from IPython.display import Image
 Image(filename="data2_2025_Q2.png")
 ```
 
-Highly volatile results - slow start with strong losses, turning into positive final cumulative net PnL. Slow growth of the gap between gross and net PnL.
+Highly volatile results - slow start with losing startegy in  the middle of the period, turning into positive final cumulative net PnL. Slow growth of the gap between gross and net PnL.
 
 ## Summary and conclusions
 
-Overall results of the startegies are good. Both startegies ended up with positive statistic values for most of the quarters - **28 and 24 for group 1 and 2** respectively. The implementation of stop-loss condition had the biggest impact on the results, making the strategies profitable. 
+Overall results of the startegies are good. Both startegies ended up with positive statistic values for most of the quarters - **28 and 49 for group 1 and 2** respectively. The implementation of stop-loss condition had the biggest impact on the results, making the strategies profitable. 
