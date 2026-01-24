@@ -1,0 +1,887 @@
+---
+title: "Quantitative strategies on High Frequency Data"
+subtitle: "submission of research project"
+author: "Team members: Joanna Misiak and Agata Tomaszewska"
+date: 01/20/2026
+date-format: "MMM D, YYYY"
+format: 
+    html:
+        fig-width: 14
+        fig-height: 8
+        center: true
+        theme: simple
+        fig-align: center
+---
+
+## Approaches undertaken {.center}
+
+To find the best strategy we considered:  
+- two intersecting moving averages  
+- a single moving average and a selected volatility measure   
+For each approach we considered a trend following and mean reverting strategy. 
+We tried pair-trading (both based on prices and returns) and portfolio based on the assets volatility. **However, the best results were obtained with single asset trading.** 
+
+We considered several combinations of parameters:  
+- slow and fast EMAs for two intersecting moving averages  
+- signal and slow EMAs for volatility breakout strategies  
+- volatilities and multipliers of the lower-upper thresholds for VB.
+
+## Approaches undertaken (cont'd)
+
+
+For pair trading attempt, addtional filtering was applied. Filters based on correlation, cointegration and regression were applied, but none of them improved the overall results. 
+
+For the final, single asset trades, **stop-loss condition** was added. If the cumulative PnL for the day was lower than $500 and $1000, for group 1 and 2 respectively, trades for the day were stopped.
+
+To find the best strategy, we looked at the **sum of the final statistic for each quarter.**
+
+## Data analysis
+
+After the initial data preparation and cleaning, we conducted an analysis to determine the most suitable structure for the trading strategy. We examined whether better results could be achieved by trading a single asset, constructing a spread between assets, or building a multi-asset portfolio. The analyses performed are presented below.
+
+We begin our analysis with data from group 1, which includes two assets: SP and NQ
+
+```{python}
+#|echo: false
+#| output: false
+import runpy
+
+# REMEMBER that in the final report you should 
+# summarise ALL teh QUARTERS - also the OUT-OF-SAMPLE
+
+runpy.run_path("assets1.py")
+```
+
+### Individual assets
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+autocorr_df = pd.read_csv("autocorr_df.csv")
+
+# Format the table
+numeric_cols = autocorr_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    autocorr_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+The individual assets show small and mixed average returns, with no clear or consistent profitability across periods. This suggests that standalone single-asset strategies do not exhibit a strong or robust edge.
+
+### Let's analyze the stability of the autocorrelations
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+stability_df = pd.read_csv("stability_df.csv")
+
+# Format the table
+numeric_cols = stability_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    stability_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+Autocorrelations are close to zero on average and display moderate variability over time. Although negative autocorrelation dominates slightly, the lack of strong and stable autocorrelation indicates limited predictability at the single-asset level.
+
+###  Let's analyze the average volatility of the assets
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+vol_df = pd.read_csv("vol_df.csv")
+
+# Format the table
+numeric_cols = vol_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    vol_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+Both assets exhibit relatively low and comparable average volatility. This implies limited return dispersion, which further constrains the potential profitability of simple directional strategies.
+
+### Conclusions for trading single assets
+Overall, the analysis suggests that trading single assets individually is unlikely to deliver stable and attractive performance. This motivates exploring alternative structures such as spreads or multi-asset portfolios to improve robustness and exploit relative dynamics.
+
+###  Spread
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+spread_autocorr_df = pd.read_csv("spread_autocorr_df.csv")
+
+# Format the table
+numeric_cols = spread_autocorr_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    spread_autocorr_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+The NQ–SP spread exhibits predominantly negative returns, with occasional larger drawdowns. This indicates that the raw spread, traded directionally, does not provide a consistent standalone profitability.
+
+###  Spread stability
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+spread_stability_df = pd.read_csv("spread_stability_df.csv")
+
+# Format the table
+numeric_cols = spread_stability_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    spread_stability_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+The spread shows a clearly negative average autocorrelation with a high proportion of negative observations, suggesting mean-reverting behavior. This indicates better structural properties than single-asset autocorrelations.
+
+###  Spread volatility
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+spread_vol_df = pd.read_csv("spread_vol_df.csv")
+
+# Format the table
+numeric_cols = spread_vol_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    spread_vol_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+The average volatility of the spread is lower than that of the individual assets, reflecting diversification effects and improved risk characteristics.
+
+### Conclusions for spread
+
+Compared to single-asset strategies, the spread demonstrates more stable statistical properties and lower volatility, making it a more promising candidate for further strategy development, particularly for mean-reversion-based approaches.
+
+###  Portfolio
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+portfolio_autocorr_df = pd.read_csv("portfolio_autocorr_df.csv")
+
+# Format the table
+numeric_cols = portfolio_autocorr_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    portfolio_autocorr_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+The portfolio delivers small but consistently positive returns across periods, indicating improved performance compared to single-asset and spread strategies.
+
+###  Portfolio stability
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+portfolio_stability_df = pd.read_csv("portfolio_stability_df.csv")
+
+# Format the table
+numeric_cols = portfolio_stability_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    portfolio_stability_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+Autocorrelations are close to zero on average, with a balanced distribution between positive and negative values. This suggests stable behavior without strong directional or mean-reverting bias.
+
+###  Portfolio volatility
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+portfolio_vol_df = pd.read_csv("portfolio_vol_df.csv")
+
+# Format the table
+numeric_cols = portfolio_stability_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    portfolio_vol_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+The portfolio exhibits the lowest average volatility among the analyzed structures, reflecting effective diversification and improved risk-adjusted characteristics.
+
+### Conlusions for portfolio
+
+The portfolio structure provides the most stable and robust profile, combining positive average performance with low volatility. This makes it the most attractive candidate for further strategy development and optimization.
+
+### Final conclusion
+
+Based on the first analysis, the portfolio approach offers the most robust and reliable framework for strategy development and is therefore the preferred choice over single-asset and spread-based strategies.
+
+## Second group of assets
+Now we can move on to analyzing the second group of assets consisting of AUD, CAD, XAU, and XAG.
+
+```{python}
+#|echo: false
+#| output: false
+import runpy
+
+# REMEMBER that in the final report you should 
+# summarise ALL teh QUARTERS - also the OUT-OF-SAMPLE
+
+runpy.run_path("assets2.py")
+```
+
+### Individual assets
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+autocorr_df = pd.read_csv("autocorr_df.csv")
+
+# Format the table
+numeric_cols = autocorr_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    autocorr_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+Individual assets (AUD, CAD, XAU, XAG) exhibit mixed and generally small returns, with no clear or consistent profitability across periods. This indicates a lack of a robust standalone trading edge at the single-asset level.
+
+### Let's analyze the stability of the autocorrelations
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+stability_df = pd.read_csv("stability_df.csv")
+
+# Format the table
+numeric_cols = stability_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    stability_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+Autocorrelations are on average slightly negative, with a high proportion of negative observations for several assets. This suggests mild mean-reverting tendencies, although the strength and consistency vary across instruments.
+
+###  Let's analyze the average volatility of the assets
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+vol_df = pd.read_csv("vol_df.csv")
+
+# Format the table
+numeric_cols = vol_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    vol_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+The assets display relatively low but heterogeneous volatility levels. Precious metals show higher volatility compared to FX pairs, which may offer more opportunity but also higher risk.
+
+### Conclusions on trading individual
+
+Overall, trading individual assets does not provide a stable or reliable performance profile. While some mean-reversion signals are present, their inconsistency suggests that more structured approaches, such as spreads or portfolios, are likely to be more effective.
+
+###  Spread
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+spread_autocorr_df = pd.read_csv("spread_autocorr_df.csv")
+
+# Format the table
+numeric_cols = spread_autocorr_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    spread_autocorr_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+Both spreads exhibit predominantly negative returns, indicating that a simple directional spread strategy does not generate consistent profitability over time.
+
+###  Spread stability
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+spread_stability_df = pd.read_csv("spread_stability_df.csv")
+
+# Format the table
+numeric_cols = spread_stability_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    spread_stability_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+The spreads display strongly negative average autocorrelation with a very high share of negative observations, pointing to pronounced mean-reverting behavior and more stable statistical properties than single assets.
+
+###  Spread volatility
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+spread_vol_df = pd.read_csv("spread_vol_df.csv")
+
+# Format the table
+numeric_cols = spread_vol_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    spread_vol_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+Spread volatility is lower than the volatility of the underlying assets, reflecting diversification effects and improved risk control.
+
+### Conclusions for spreads
+
+While the spreads do not deliver stable positive returns on their own, their strong mean-reversion characteristics and reduced volatility make them suitable building blocks for more advanced strategies rather than standalone directional trades.
+
+###  Portfolio
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+portfolio_autocorr_df = pd.read_csv("portfolio_autocorr_df.csv")
+
+# Format the table
+numeric_cols = portfolio_autocorr_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    portfolio_autocorr_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+The portfolio results show more balanced and less extreme returns compared to single assets and spreads, indicating improved diversification across asset groups.
+
+###  Portfolio stability
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+portfolio_stability_df = pd.read_csv("portfolio_stability_df.csv")
+
+# Format the table
+numeric_cols = portfolio_stability_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    portfolio_stability_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+Autocorrelations are close to zero on average, with a higher share of negative observations, suggesting stable behavior without strong directional dependence and reduced sensitivity to regime changes.
+
+###  Portfolio volatility
+
+```{python}
+#| echo: false
+import pandas as pd
+# import the csv file with strategy results
+portfolio_vol_df = pd.read_csv("portfolio_vol_df.csv")
+
+# Format the table
+numeric_cols = portfolio_stability_df.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    portfolio_vol_df.style
+    .format("{:+.5f}")
+    .background_gradient(cmap="RdBu", vmin=-1, vmax=1)
+    .set_properties(**{"text-align": "right", "font-size": "10px"})
+    .hide(axis="index")
+)
+
+styled_table
+```
+Portfolio volatility is the lowest among the analyzed structures, highlighting the benefits of diversification and improved risk-adjusted characteristics.
+
+### Conclusions for portfolio
+The portfolio approach provides the most robust and stable framework, combining diversified returns, low volatility, and consistent statistical properties, making it the preferred choice for further strategy development.
+
+### Summary
+Across the analyzed assets (FX and metals), single-asset strategies do not exhibit stable or repeatable profitability, while spread-based approaches show improved statistical properties but lack consistent positive returns. The portfolio structure delivers the most robust results, combining lower volatility, more stable behavior, and improved diversification. Therefore, a portfolio-based approach is the preferred choice for trading these assets and provides the strongest foundation for further strategy development
+
+**However, after adding transaction costs, the best strategies were for single assets in both cases.**
+
+
+
+## Finally selected strategy for **group 1**
+
+As a result of the trial and error process, we have ended with volatility breakout model with momentum strategy for **SP** with signal and slow EMA of 30 and 240 respectively. The window length used in volatilities calculation was set to 120, while the multiplier for lower and upper threshold was set to 1. The stop-loss assumption was set as maximum of $500 loss per day.
+
+
+
+```{python}
+#|echo: false
+#| output: false
+import runpy
+
+# REMEMBER that in the final report you should 
+# summarise ALL teh QUARTERS - also the OUT-OF-SAMPLE
+
+runpy.run_path("your_final_strategy_group1.py")
+```
+
+## Summary of results for **group 1**
+
+```{python}
+#| echo: false
+
+# import the csv file with strategy results
+import pandas as pd
+summary_data1_all_quarters = pd.read_csv("summary_data1_all_quarters.csv")
+
+# Format the table
+numeric_cols = summary_data1_all_quarters.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    summary_data1_all_quarters.style
+    .format("{:.2f}", subset=numeric_cols)   # format numbers only
+    .set_properties(**{"text-align": "right"})  
+    .set_table_styles([
+        {"selector": "th", "props": [("font-size", "10px")]},
+        {"selector": "td", "props": [("font-size", "10px")]}
+    ])
+    .hide(axis = "index")   # << hides the index
+)
+styled_table
+```
+
+The table summarizes the quarterly performance of the selected strategy for Group 1. Across most quarters, the strategy generates positive gross and net Sharpe ratios, indicating consistent risk-adjusted performance. Gross and net PnL remain positive in the majority of periods, with net results reflecting reasonable transaction costs and execution effects.
+
+While performance varies across quarters, drawdowns and net capital requirements remain controlled, suggesting stable risk exposure. Average daily transaction statistics are relatively stable over time, indicating consistent trading activity without excessive turnover.
+
+Overall, the results demonstrate that the strategy delivers robust and repeatable performance across different market regimes, supporting its suitability as the final choice for Group 1.
+
+## Equity line for **group 1** -- 2023Q1
+
+```{python}
+#| echo: false
+#| out-width: 100%
+from IPython.display import Image
+Image(filename="data1_2023_Q1.png")
+```
+We can see that both gross and net cumulative PnL are rising. Small gap between the, indicating low costs.
+
+
+## Equity line for **group 1** -- 2023Q2
+
+```{python}
+#| echo: false
+#| out-width: 100%
+from IPython.display import Image
+Image(filename="data1_2023_Q2.png")
+```
+
+We can see that both gross and net cumulative PnL are rising. Small gap between the, indicating low costs.
+
+
+## Equity line for **group 1** -- 2023Q3
+
+```{python}
+#| echo: false
+#| out-width: 100%
+from IPython.display import Image
+Image(filename="data1_2023_Q3.png")
+```
+More volatility can be observed - also bigger difference bewteen gross and net PnL. However, still positive PnL.
+
+## Equity line for **group 1** -- 2023Q4
+
+```{python}
+#| echo: false
+#| out-width: 100%
+from IPython.display import Image
+Image(filename="data1_2023_Q4.png")
+```
+
+Rising trend of both gross and net PnL. Strategy behavior is consistent. A little divergence can be observed over time.
+
+## Equity line for **group 1** -- 2024Q1
+
+```{python}
+#| echo: false
+#| out-width: 100%
+from IPython.display import Image
+Image(filename="data1_2024_Q1.png")
+```
+
+The equity line shows a steadily rising trajectory with moderate drawdowns, while the gap between gross and net PnL remains stable, indicating consistent performance after transaction costs.
+
+## Equity line for **group 1** -- 2024Q2
+
+```{python}
+#| echo: false
+#| out-width: 100%
+from IPython.display import Image
+Image(filename="data1_2024_Q2.png")
+```
+
+The start of the quarter was really good - gross and net PnL close together and rising quickly. However, the second half of the quarter it turned into losing startegy. 
+
+## Equity line for **group 1** -- 2024Q3
+
+```{python}
+#| echo: false
+#| out-width: 100%
+from IPython.display import Image
+Image(filename="data1_2024_Q3.png")
+```
+
+Rising trend of both gross and net PnL. Strategy behavior is consistent. A little divergence can be observed over time.
+
+## Equity line for **group 1** -- 2024Q4
+
+```{python}
+#| echo: false
+#| out-width: 100%
+from IPython.display import Image
+Image(filename="data1_2024_Q4.png")
+```
+Strong, upward trend for both gross and net PnL. Final cumulative net PnL is lower than it could be - strong decrease in last couple of days.
+
+## Equity line for **group 1** -- 2025Q1
+
+```{python}
+#| echo: false
+#| out-width: 100%
+from IPython.display import Image
+Image(filename="data1_2025_Q1.png")
+```
+Strongly volatile both gross and net PnL - mostly in the negative values. Not the best strategy for this quarter.
+
+## Equity line for **group 1** -- 2025Q2
+
+```{python}
+#| echo: false
+#| out-width: 100%
+from IPython.display import Image
+Image(filename="data1_2025_Q2.png")
+```
+
+Sharp increase in first 15 days with low costs. Then stable for the rest of the quarter - strong final cumulative net PnL of more than $18,000.
+
+## Equity line for **group 1** -- 2025Q3
+
+```{python}
+#| echo: false
+#| out-width: 100%
+from IPython.display import Image
+Image(filename="data1_2025_Q3.png")
+```
+
+The equity line in 2025Q3 is highly volatile, with a deep mid-quarter drawdown followed by a sharp recovery, indicating unstable performance but strong late-period rebound.
+
+## Equity line for **group 1** -- 2025Q4
+
+```{python}
+#| echo: false
+#| out-width: 100%
+from IPython.display import Image
+Image(filename="data1_2025_Q4.png")
+```
+
+Here we can see an early drawdown followed by a steady recovery and a strong finish, suggesting improving performance and better end-of-period stability.
+
+
+
+## Finally selected strategy for **group 2**
+
+As a result of the trial and error process, we have ended with volatility breakout model with momentum strategy for **XAG** with signal and slow EMA of 30 and 240 respectively. The window length used in volatilities calculation was set to 60, while the multiplier for lower and upper threshold was set to 1. The stop-loss assumption was set as maximum of $1000 loss per day.
+
+## Summary of results for **group 2**
+
+<!-- here you can include code chunk that applies the strategy for group 1 and calculates all the summary statistics
+-->
+
+```{python}
+#|echo: false
+#| output: false
+import runpy
+
+runpy.run_path("your_final_strategy_group2.py")
+```
+
+
+
+```{python}
+#| echo: false
+#| fig-align: center
+
+# import the csv file with strategy results
+import pandas as pd
+summary_data2_all_quarters = pd.read_csv("summary_data2_all_quarters.csv")
+
+# Format the table
+numeric_cols = summary_data2_all_quarters.select_dtypes(include=['float', 'int']).columns
+
+styled_table = (
+    summary_data2_all_quarters.style
+    .format("{:.2f}", subset=numeric_cols)   # format numbers only
+    .set_properties(**{"text-align": "right"})  
+    .set_table_styles([
+        {"selector": "th", "props": [("font-size", "20px")]},
+        {"selector": "td", "props": [("font-size", "20px")]}
+    ])
+    .hide(axis = "index")   # << hides the index
+)
+styled_table
+```
+
+The strategy delivers consistently positive gross and net Sharpe ratios across most quarters, with strong cumulative returns and positive net PnL after costs. Performance is particularly strong in selected periods, while drawdowns and trading activity remain controlled, indicating a robust and repeatable volatility-breakout approach.
+
+## Equity line for **group 1** -- 2023Q1
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2023_Q1.png")
+```
+
+Little volatility in the first half of the quarter. However, later steady, growing trend indicates profitable strategy. 
+
+## Equity line for **group 1** -- 2023Q2
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2023_Q2.png")
+```
+
+The equity line shows a deep early drawdown followed by a strong mid- to late-quarter recovery, resulting in a positive outcome but with elevated volatility. 
+
+## Equity line for **group 2** -- 2023Q3
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2023_Q3.png")
+```
+
+Strategy started off strong - quick increase of both gross and net PnL. Little gap between gross and net PnL means low total transaction costs.
+
+## Equity line for **group 2** -- 2023Q4
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2023_Q4.png")
+```
+
+Slow start with balancing on the profitability edge. Later, followed by rapid increase and steady end of the quarter. 
+
+## Equity line for **group 2** -- 2024Q1
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2024_Q1.png")
+```
+
+Here we can see strong profitability with multiple peaks, but increased volatility toward the end of the quarter leads to partial profit erosion, highlighting a trade-off between high returns and drawdowns.
+
+## Equity line for **group 2** -- 2024Q2
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2024_Q2.png")
+```
+
+Steady increase in both gross and net PnL, indicating stable startegy. Little gap between the lines shows low total transaction costs (low trade number). Peak PnL at $30,000.
+
+## Equity line for **group 2** -- 2024Q3
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2024_Q3.png")
+```
+
+Performance in 2024Q3 is characterized by a strong and steady upward trajectory, with limited drawdowns and a narrow gap between gross and net PnL, indicating efficient execution and robust profitability.
+
+## Equity line for **group 2** -- 2024Q4
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2024_Q4.png")
+```
+Strong, upward trade with little volatility. Gross and net PnL lines close togetger, indicating low tota transaction costs.
+
+## Equity line for **group 2** -- 2025Q1
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2025_Q1.png")
+```
+Strong, upward trend with high volatility in second half of the quarter. Ending culmulative net PnL strong at more that $20,000.
+
+## Equity line for **group 2** -- 2025Q2
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2025_Q2.png")
+```
+
+Highly volatile results - slow start with losing startegy in  the middle of the period, turning into positive final cumulative net PnL. Slow growth of the gap between gross and net PnL.
+
+## Equity line for **group 2** -- 2025Q3
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2025_Q3.png")
+```
+
+performance is highly volatile, marked by a deep mid-quarter drawdown followed by a sharp late-period rebound, indicating unstable behavior but strong recovery potential
+
+## Equity line for **group 2** -- 2025Q4
+
+```{python}
+#| echo: false
+#| out-width: 100%
+#| fig-align: center
+from IPython.display import Image
+Image(filename="data2_2025_Q4.png")
+```
+
+the equity curve shows an initial drawdown followed by a strong and consistent recovery, ending the quarter with solid positive performance and improved stability compared to the previous period
+
+## Summary and conclusions
+
+This project focused on the design and evaluation of intraday trading strategies based on technical indicators, including momentum and mean-reversion approaches, applied to high-frequency market data. The strategies were tested across multiple quarterly periods using realistic trading constraints such as restricted trading hours, flat-position rules around session boundaries, and transaction cost modeling.
+
+Strategy performance was assessed using profit and loss (PnL), Sharpe ratios, and Calmar ratios computed from returns normalized by traded notional exposure, avoiding arbitrary capital assumptions. A daily stop-loss mechanism was introduced to limit downside risk and control large intraday losses. The implementation of stop-loss condition had the biggest impact on the results, making the strategies profitable. The stop-loss significantly improved drawdown behavior and return stability, turning otherwise unstable strategies into consistently profitable ones.
+
+Overall, the results highlight that effective risk management and execution rules are as important as signal generation itself, and that simple technical strategies can achieve robust performance when complemented by disciplined stop-loss controls. 
