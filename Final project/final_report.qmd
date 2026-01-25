@@ -2715,8 +2715,8 @@ breaks = (all_data_2.index.time >= pd.to_datetime("16:51").time()) & \
 
 pos_flat[breaks] = 1
 
-dweek_ = data2.index.dayofweek + 1
-time_ = data2.index.time
+dweek_ = all_data_2.index.dayofweek + 1
+time_ = all_data_2.index.time
 pos_flat[((dweek_ == 5) & (time_ > pd.to_datetime('17:00').time())) |      # end of Friday
         (dweek_ == 6) |                                                      # whole Saturday (just in case)
         ((dweek_ == 7) & (time_ <= pd.to_datetime('18:00').time()))] = 1
@@ -2853,7 +2853,7 @@ for quarter in quarters:
     plt.colorbar(im1, ax=axes[0])
     
     # Plot mean reversion strategy heatmap
-    quarter_data_pivot_mr = quarter_data.pivot(index='fastEMA', columns='slowEMA', values='net_SR_mom')
+    quarter_data_pivot_mr = quarter_data.pivot(index='fastEMA', columns='slowEMA', values='net_PnL_mr')
     im2 = axes[1].imshow(quarter_data_pivot_mr.values, cmap='coolwarm', aspect='auto')
     axes[1].set_xticks(range(len(quarter_data_pivot_mr.columns)))
     axes[1].set_yticks(range(len(quarter_data_pivot_mr.index)))
@@ -2861,7 +2861,7 @@ for quarter in quarters:
     axes[1].set_yticklabels(quarter_data_pivot_mr.index)
     axes[1].set_xlabel('slowEMA')
     axes[1].set_ylabel('fastEMA')
-    axes[1].set_title(f'Net Sharpe Ratio (Momentum) - {quarter}')
+    axes[1].set_title(f'Net PnL(Mean Reversion) - {quarter}')
     plt.colorbar(im2, ax=axes[1])
     
     plt.tight_layout()
@@ -2997,7 +2997,7 @@ for quarter in quarters:
     plt.colorbar(im1, ax=axes[0])
     
     # Plot mean reversion strategy heatmap
-    quarter_data_pivot_mr = quarter_data.pivot(index='fastEMA', columns='slowEMA', values='net_SR_mom')
+    quarter_data_pivot_mr = quarter_data.pivot(index='fastEMA', columns='slowEMA', values='net_PnL_mr')
     im2 = axes[1].imshow(quarter_data_pivot_mr.values, cmap='coolwarm', aspect='auto')
     axes[1].set_xticks(range(len(quarter_data_pivot_mr.columns)))
     axes[1].set_yticks(range(len(quarter_data_pivot_mr.index)))
@@ -3050,15 +3050,18 @@ for quarter in quarters:
 
             # spread based on average ratio
             signal_avratio = XAU - (quarter_data["av_ratio"] * XAG)
+            
             std_spread_avratio = signal_avratio.rolling(window=volat_sd).std()
             upper_bound_avratio = m * std_spread_avratio
             lower_bound_avratio = -m * std_spread_avratio
             # position
-            pos_avratio = positionVB(signal = signal_avratio,
-                                    lower = lower_bound_avratio,
-                                    upper = upper_bound_avratio,
-                                    pos_flat = pos_flat[quarter_mask],
-                                    strategy = "mr")
+            pos_avratio = positionVB(
+                signal=signal_avratio.to_numpy(),
+                lower=lower_bound_avratio.to_numpy(),
+                upper=upper_bound_avratio.to_numpy(),
+                pos_flat=np.array(pos_flat)[np.array(quarter_mask)],
+                strategy="mr"
+            )
             # number of transactions
             n_trans_avratio = np.abs(np.diff(pos_avratio, prepend = 0))
             # convert to pd.Series and set the index
@@ -3445,22 +3448,23 @@ for quarter in quarters:
                 for m in m_parameters:
 
                     # We calculate the appropriate EMA
-                    signalEMA_values = XAG.ewm(span = signalEMA).mean().to_numpy()
-                    slowEMA_values = XAG.ewm(span = slowEMA).mean().to_numpy()
+                    signalEMA_values = XAG.ewm(span = signalEMA).mean().to_numpy().copy()
+                    slowEMA_values = XAG.ewm(span = slowEMA).mean().to_numpy().copy()
 
                     # We calculate the standard deviation
-                    volat_sd_values = XAG.rolling(window = volat_sd).std().to_numpy()
+                    volat_sd_values = XAG.rolling(window = volat_sd).std().to_numpy().copy()
 
                     # Insert NaNs wherever the original price is missing
-                    signalEMA_values[XAG.isna()] = np.nan
-                    slowEMA_values[XAG.isna()] = np.nan
-                    volat_sd_values[XAG.isna()] = np.nan
+                    mask = XAG.isna()
+                    signalEMA_values[mask] = np.nan
+                    slowEMA_values[mask] = np.nan
+                    volat_sd_values[mask] = np.nan
 
                     # Calculate position for momentum strategy
                     pos_mom = positionVB(signal = signalEMA_values,
                                      lower = slowEMA_values - m * volat_sd_values,
                                      upper = slowEMA_values + m * volat_sd_values,
-                                     pos_flat = pos_flat,
+                                     pos_flat=np.array(pos_flat)[np.array(quarter_mask)],
                                      strategy = "mom")
 
                     pos_mr = -pos_mom
@@ -3642,22 +3646,22 @@ for quarter in quarters:
             for volat_sd in volat_sd_parameters:
                 for m in m_parameters:
                     # We calculate the appropriate EMA
-                    signalEMA_values = XAG.ewm(span=signalEMA).mean().to_numpy()
-                    slowEMA_values = XAG.ewm(span=slowEMA).mean().to_numpy()
+                    signalEMA_values = XAG.ewm(span=signalEMA).mean().to_numpy().copy()
+                    slowEMA_values = XAG.ewm(span=slowEMA).mean().to_numpy().copy()
 
                     # We calculate the standard deviation
-                    volat_sd_values = XAG.rolling(window=volat_sd).std().to_numpy()
-
+                    volat_sd_values = XAG.rolling(window=volat_sd).std().to_numpy().copy()
                     # Insert NaNs wherever the original price is missing
-                    signalEMA_values[XAG.isna()] = np.nan
-                    slowEMA_values[XAG.isna()] = np.nan
-                    volat_sd_values[XAG.isna()] = np.nan
+                    mask = XAG.isna()
+                    signalEMA_values[mask] = np.nan
+                    slowEMA_values[mask] = np.nan
+                    volat_sd_values[mask] = np.nan
 
                     # Calculate position for momentum strategy
                     pos_mom = positionVB(signal=signalEMA_values,
                                          lower=slowEMA_values - m * volat_sd_values,
                                          upper=slowEMA_values + m * volat_sd_values,
-                                         pos_flat=pos_flat,
+                                         pos_flat=np.array(pos_flat)[np.array(quarter_mask)],
                                          strategy="mom")
 
                     pos_mr = -pos_mom
@@ -3857,7 +3861,7 @@ styled_table
 
 The strategy delivers consistently positive gross and net Sharpe ratios across most quarters, with strong cumulative returns and positive net PnL after costs. Performance is particularly strong in selected periods, while drawdowns and trading activity remain controlled, indicating a robust and repeatable volatility-breakout approach.
 
-## Equity line for **group 1** -- 2023Q1
+## Equity line for **group 2** -- 2023Q1
 
 ```{python}
 #| echo: false
@@ -3869,7 +3873,7 @@ Image(filename="data2_2023_Q1.png")
 
 Little volatility in the first half of the quarter. However, later steady, growing trend indicates profitable strategy. 
 
-## Equity line for **group 1** -- 2023Q2
+## Equity line for **group 2** -- 2023Q2
 
 ```{python}
 #| echo: false
