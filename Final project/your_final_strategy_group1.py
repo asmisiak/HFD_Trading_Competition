@@ -56,16 +56,16 @@ for quarter in quarters:
     ##############################################################
     
     # We calculate the appropriate EMA
-    signalEMA_values = data1['SP'].ewm(span = 30).mean().to_numpy()
-    slowEMA_values = data1['SP'].ewm(span = 240).mean().to_numpy()
-                                
+    signalEMA_values = data1['SP'].ewm(span = 30).mean().to_numpy().copy()
+    slowEMA_values = data1['SP'].ewm(span = 240).mean().to_numpy().copy()
     # We calculate the standard deviation
-    volat_sd_values = data1['SP'].rolling(window = 120).std().to_numpy()
+    volat_sd_values = data1['SP'].rolling(window = 120).std().to_numpy().copy()
 
     # Insert NaNs wherever the original price is missing
-    signalEMA_values[data1['SP'].isna()] = np.nan
-    slowEMA_values[data1['SP'].isna()] = np.nan 
-    volat_sd_values[data1['SP'].isna()] = np.nan 
+    mask = data1['SP'].isna()
+    signalEMA_values[mask] = np.nan
+    slowEMA_values[mask] = np.nan
+    volat_sd_values[mask] = np.nan
 
     # Calculate position for momentum strategy
     pos_mom = positionVB(signal = signalEMA_values, 

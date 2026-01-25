@@ -509,8 +509,1824 @@ Across the analyzed assets (FX and metals), single-asset strategies do not exhib
 
 **However, after adding transaction costs, the best strategies were for single assets in both cases.**
 
+## In-Sample Analysis of **group 1** 
+
+### Spread
+
+Based on the correlation and contegration analysis above, first we tried to create a strategy on the spread between NQ and SP. We considered both spread based on prices and based on returns. We analyzed both mean-reverting and trend-following strategies based on moving averages and volatility breakout models. 
+
+#### Spread based on prices
+We can see the spread based on prices below:
+
+```{python}
+#|echo: false
+#| output: false
+#we load the necessary libraries
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import quantstats as qs
+
+quarters = ['2023_Q1', '2023_Q3', '2023_Q4',
+            '2024_Q2', '2024_Q4',
+            '2025_Q1', '2025_Q2']
+from statsmodels.tsa.stattools import coint
+from statsmodels.tsa.stattools import adfuller
+
+# Combine all quarterly data into one file with quarter identification
+all_data_list = []
+
+for quarter in quarters:
+    data1 = pd.read_parquet(f'data/data1_{quarter}.parquet')
+    data1['datetime'] = pd.to_datetime(data1['datetime'])
+    data1.set_index('datetime', inplace=True)
+    
+    data_r = np.log(data1 / data1.shift(1)) * 10000
+    data_r.columns = ['r_' + col for col in data_r.columns]
+    
+    data_NQ_SP_temp = pd.concat(
+        [data1[['NQ', 'SP']],
+        data_r[['r_NQ', 'r_SP']]],
+        axis=1
+    )
+    
+    data_NQ_SP_temp.loc[data_NQ_SP_temp.between_time("9:31", "9:40").index] = np.nan
+    data_NQ_SP_temp.loc[data_NQ_SP_temp.between_time("15:51", "16:00").index] = np.nan
+    
+    data_NQ_SP_plot = data_NQ_SP_temp.copy()
+    data_NQ_SP_plot['time'] = data_NQ_SP_plot.index.astype(str)
+
+    # We reset the index to make 'time' a column
+    data_NQ_SP_plot = data_NQ_SP_plot.reset_index(drop = True)
+    
+    # Add quarter column
+    data_NQ_SP_temp['quarter'] = quarter
+    
+    all_data_list.append(data_NQ_SP_temp)
+
+# Combine all data
+all_data = pd.concat(all_data_list, axis=0)
+
+# Save to parquet file
+all_data.to_parquet('data/all_quarters_data.parquet')
+    
+```
+
+```{python}
+#| echo: false
+
+# Calculate the ratio for each quarter
+ratio_results = []
+
+# Initialize list to store all av_ratio data with quarter identification
+all_av_ratios = []
+
+for quarter in quarters:
+    data1 = pd.read_parquet(f'data/data1_{quarter}.parquet')
+    data1['datetime'] = pd.to_datetime(data1['datetime'])
+    data1.set_index('datetime', inplace=True)
+    
+    data_r = np.log(data1 / data1.shift(1)) * 10000
+    data_r.columns = ['r_' + col for col in data_r.columns]
+    
+    data_NQ_SP_temp = pd.concat(
+        [data1[['NQ', 'SP']],
+        data_r[['r_NQ', 'r_SP']]],
+        axis=1
+    )
+    
+    data_NQ_SP_temp.loc[data_NQ_SP_temp.between_time("9:31", "9:40").index] = np.nan
+    data_NQ_SP_temp.loc[data_NQ_SP_temp.between_time("15:51", "16:00").index] = np.nan
+    
+    # Compute the ratio SP / NQ
+    ratio_temp = data_NQ_SP_temp["NQ"] / data_NQ_SP_temp["SP"]
+    
+    # Compute daily averages
+    av_ratio_temp = ratio_temp.resample("D").mean().dropna()
+    
+    # Store results
+    ratio_results.append({
+        'Quarter': quarter,
+        'Mean_Ratio': av_ratio_temp.mean(),
+        'Std_Ratio': av_ratio_temp.std(),
+        'Min_Ratio': av_ratio_temp.min(),
+        'Max_Ratio': av_ratio_temp.max()
+    })
+    
+    # Store av_ratio with quarter identification
+    av_ratio_quarter = av_ratio_temp.to_frame(name='av_ratio')
+    av_ratio_quarter['quarter'] = quarter
+    av_ratio_quarter.index = av_ratio_quarter.index + pd.to_timedelta(np.where(av_ratio_quarter.index.day_name() == "Friday", "3D", "1D")) + pd.Timedelta("9h31m")
+    all_av_ratios.append(av_ratio_quarter)
+
+# Combine all av_ratios into one DataFrame
+all_av_ratios_df = pd.concat(all_av_ratios, axis=0)
+
+# Create summary dataframe
+ratio_summary = pd.DataFrame(ratio_results)
+
+# Create charts for each quarter
+fig, axes = plt.subplots(len(quarters), 1, figsize=(8, 4*len(quarters)))
+
+for idx, quarter in enumerate(quarters):
+    quarter_data = all_av_ratios_df[all_av_ratios_df['quarter'] == quarter]
+    
+    axes[idx].plot(quarter_data.index, quarter_data['av_ratio'].values)
+    axes[idx].set_title(f"Average Daily NQ/SP Ratio - {quarter}")
+    axes[idx].set_xlabel("Date")
+    axes[idx].set_ylabel("Average Ratio")
+    axes[idx].grid(True, alpha=0.3)
+    axes[idx].tick_params(axis='x', rotation=45)
+
+plt.tight_layout()
+plt.show()
+
+```
+
+### Spread based on returns
+We can see the spread based on returns below:
+```{python}
+#| echo: false
+
+import warnings
+warnings.filterwarnings("ignore")
+# Calculate the ratio for each quarter
+ratio_sds_results = []
+
+# Initialize list to store all av_ratio data with quarter identification
+all_sds_ratios = []
+
+for quarter in quarters:
+    data1 = pd.read_parquet(f'data/data1_{quarter}.parquet')
+    data1['datetime'] = pd.to_datetime(data1['datetime'])
+    data1.set_index('datetime', inplace=True)
+    
+    data_r = np.log(data1 / data1.shift(1)) * 10000
+    data_r.columns = ['r_' + col for col in data_r.columns]
+    
+    data_NQ_SP_temp = pd.concat(
+        [data1[['NQ', 'SP']],
+        data_r[['r_NQ', 'r_SP']]],
+        axis=1
+    )
+    
+    data_NQ_SP_temp.loc[data_NQ_SP_temp.between_time("9:31", "9:40").index] = np.nan
+    data_NQ_SP_temp.loc[data_NQ_SP_temp.between_time("15:51", "16:00").index] = np.nan
+    
+    # Compute the ratio SP / NQ
+    ratio_temp = data_NQ_SP_temp.resample("D").apply(lambda x: x['r_NQ'].std() / x['r_SP'].std())
+    
+    # Compute daily averages
+    sds_ratio_temp = ratio_temp.dropna()
+    
+    # Store results
+    ratio_results.append({
+        'Quarter': quarter,
+        'Mean_Ratio': sds_ratio_temp.mean(),
+        'Std_Ratio': sds_ratio_temp.std(),
+        'Min_Ratio': sds_ratio_temp.min(),
+        'Max_Ratio': sds_ratio_temp.max()
+    })
+    
+    # Store av_ratio with quarter identification
+    sds_ratio_quarter = sds_ratio_temp.to_frame(name='sds_ratio')
+    sds_ratio_quarter['quarter'] = quarter
+    sds_ratio_quarter.index = sds_ratio_quarter.index + pd.to_timedelta(np.where(sds_ratio_quarter.index.day_name() == "Friday", "3D", "1D")) + pd.Timedelta("9h31m")
+    all_sds_ratios.append(sds_ratio_quarter)
+
+# Combine all av_ratios into one DataFrame
+all_sds_ratios_df = pd.concat(all_sds_ratios, axis=0)
+
+# Create summary dataframe
+ratio_summary = pd.DataFrame(ratio_results)
+
+# Create charts for each quarter
+fig, axes = plt.subplots(len(quarters), 1, figsize=(8, 4*len(quarters)))
+
+for idx, quarter in enumerate(quarters):
+    quarter_data = all_sds_ratios_df[all_sds_ratios_df['quarter'] == quarter]
+    
+    axes[idx].plot(quarter_data.index, quarter_data['sds_ratio'].values)
+    axes[idx].set_title(f"Average Daily NQ/SP Ratio - {quarter}")
+    axes[idx].set_xlabel("Date")
+    axes[idx].set_ylabel("Average Ratio")
+    axes[idx].grid(True, alpha=0.3)
+    axes[idx].tick_params(axis='x', rotation=45)
+
+plt.tight_layout()
+plt.show()
+
+```
+
+```{python}
+#| echo: false
+
+all_data_2 = all_data.copy()
+all_data_2 = all_data_2.merge(all_sds_ratios_df[['sds_ratio']], left_index=True, right_index=True, how='left')
+all_data_2 = all_data_2.merge(all_av_ratios_df[['av_ratio']], left_index=True, right_index=True, how='left')
+all_data_2[['av_ratio', 'sds_ratio']] = all_data_2[['av_ratio', 'sds_ratio']].ffill()
+
+all_data_2['spread_avratio'] = all_data_2['NQ'] - all_data_2['SP'] * all_data_2['av_ratio']
+all_data_2['spread_sdsratio'] = all_data_2['r_NQ'] - all_data_2['r_SP'] * all_data_2['sds_ratio']
+
+# combine all data and show the head of specific day
+all_data_2.loc['2023-01-04'].between_time("11:00", "16:00").head(10)
+```
+
+```{python}
+
+pos_flat = np.zeros(len(all_data_2))
+# we do not trade within the first 25 minutes (9:31-9:55)
+# but also before that time since midnight
+
+pos_flat[all_data_2.index.time <= pd.to_datetime("9:55").time()] = 1
+
+# and last 20 minutes of the session (15:40-16:00)
+# but also after this time until midnight
+
+pos_flat[all_data_2.index.time >= pd.to_datetime("15:40").time()] = 1
+```
+
+### Two moving averages strategy
+
+We have tried both trend-following and mean-reverting strategies based on two moving averages. We run the analysis for various combinations of the parameters. The final statistic was calculated for each combination. The profitability of the strategies for spread based on prices can be sumarized on the heatmaps of Net sharpe Ratio below.
+
+```{python}
+#| echo: false
+#| output: false
+# we check various parameter combinations in a loop
+
+def mySR(x, scale):
+    return np.sqrt(scale) * np.nanmean(x) / np.nanstd(x)
+
+fastEMA_parameters = [15, 20, 30, 45, 60, 75, 90]
+slowEMA_parameters = [90, 120, 150, 180, 240, 300, 360, 420]
+
+# create a dataframe to store results
+summary_all_2MAs = pd.DataFrame()
+
+# Loop over each quarter
+for quarter in quarters:
+    print(f"\nProcessing quarter: {quarter}")
+    
+    # Filter data for the current quarter
+    quarter_mask = all_data_2['quarter'] == quarter
+    quarter_data = all_data_2[quarter_mask].copy()
+    
+    # Loop over different parameter combinations
+    for fastEMA in fastEMA_parameters:
+        for slowEMA in slowEMA_parameters:
+                    
+                    # ensure that fastEMA is less than slowEMA
+                    if fastEMA >= slowEMA:
+                        continue
+
+                    print(f"  fastEMA = {fastEMA}, slowEMA = {slowEMA}")
+
+                    # We calculate the appropriate EMA
+                    fastEMA_values = quarter_data['spread_avratio'].ewm(span = fastEMA).mean()
+                    slowEMA_values = quarter_data['spread_avratio'].ewm(span = slowEMA).mean()
+
+                    # Insert NaNs wherever the original price is missing
+                    fastEMA_values[quarter_data['spread_avratio'].isna()] = np.nan
+                    slowEMA_values[quarter_data['spread_avratio'].isna()] = np.nan 
+
+                    # Calculate position for momentum strategy
+                    cond2b_mom_long = fastEMA_values.shift(1) > slowEMA_values.shift(1)
+                    
+                    # let's add filters that check for the presence of NaN values
+                    fastEMA_nonmiss = fastEMA_values.shift(1).notna()
+                    slowEMA_nonmiss = slowEMA_values.shift(1).notna()
+
+                    # Now we can add these conditions to our strategies
+                    # if any of the values is missing,
+                    # we cannot make a position decision
+
+                    pos_mom = np.where(fastEMA_nonmiss & slowEMA_nonmiss,
+                                       np.where(cond2b_mom_long, 1, -1),
+                                       np.nan)
+                    pos_mr = -pos_mom 
+
+                    # Set position to 0 where pos_flat is 1
+                    pos_flat_quarter = pos_flat[quarter_mask]
+                    pos_mom[pos_flat_quarter == 1] = 0
+                    pos_mr[pos_flat_quarter == 1] = 0
+                    
+                    # Calculate gross pnl
+                    pnl_gross_mom = pos_mom * (quarter_data['NQ'].diff() - quarter_data['SP'].diff() * quarter_data['av_ratio'])
+                    pnl_gross_mr = pos_mr * (quarter_data['NQ'].diff() - quarter_data['SP'].diff() * quarter_data['av_ratio'])
+                    # point value for E6
+
+                    # Calculate number of transactions
+                    ntrans = np.abs(np.diff(pos_mom, prepend = 0))
+
+                    # Calculate net pnl
+                    pnl_net_mom = pnl_gross_mom - ntrans * (12 + quarter_data['av_ratio']*12)  # cost $10 per transaction on E6
+                    pnl_net_mr = pnl_gross_mr - ntrans * (12 + quarter_data['av_ratio']*12)   # cost $10 per transaction on E6
+                      
+                    # Aggregate to daily data
+                    pnl_gross_mom = pd.Series(pnl_gross_mom)
+                    pnl_gross_mom.index = quarter_data['spread_avratio'].index.time
+                    pnl_gross_mom_d = pnl_gross_mom.groupby(quarter_data['spread_avratio'].index.date).sum()
+                    pnl_gross_mr = pd.Series(pnl_gross_mr)
+                    pnl_gross_mr.index = quarter_data['spread_avratio'].index.time
+                    pnl_gross_mr_d = pnl_gross_mr.groupby(quarter_data['spread_avratio'].index.date).sum()
+
+                    pnl_net_mom = pd.Series(pnl_net_mom)
+                    pnl_net_mom.index = quarter_data['spread_avratio'].index.time
+                    pnl_net_mom_d = pnl_net_mom.groupby(quarter_data['spread_avratio'].index.date).sum()
+                    pnl_net_mr = pd.Series(pnl_net_mr)
+                    pnl_net_mr.index = quarter_data['spread_avratio'].index.time
+                    pnl_net_mr_d = pnl_net_mr.groupby(quarter_data['spread_avratio'].index.date).sum()
+
+                    ntrans = pd.Series(ntrans)
+                    ntrans.index = quarter_data['spread_avratio'].index.time
+                    ntrans_d = ntrans.groupby(quarter_data['spread_avratio'].index.date).sum()
+
+                    # Calculate Sharpe Ratio and PnL
+                    gross_SR_mom = mySR(pnl_gross_mom_d, scale=252)
+                    net_SR_mom = mySR(pnl_net_mom_d, scale=252)
+                    gross_PnL_mom = pnl_gross_mom_d.sum()
+                    net_PnL_mom = pnl_net_mom_d.sum()
+                    gross_SR_mr = mySR(pnl_gross_mr_d, scale=252)
+                    net_SR_mr = mySR(pnl_net_mr_d, scale=252)
+                    gross_PnL_mr = pnl_gross_mr_d.sum()
+                    net_PnL_mr = pnl_net_mr_d.sum()
+
+                    av_daily_ntrans = ntrans_d.mean()
+
+                    # Collect necessary results into one object
+                    summary = pd.DataFrame({
+                        'fastEMA': fastEMA,
+                        'slowEMA': slowEMA,
+                        'quarter': quarter,
+                        'gross_SR_mom': gross_SR_mom,
+                        'net_SR_mom': net_SR_mom,
+                        'gross_PnL_mom': gross_PnL_mom,
+                        'net_PnL_mom': net_PnL_mom,
+                        'gross_SR_mr': gross_SR_mr,
+                        'net_SR_mr': net_SR_mr,
+                        'gross_PnL_mr': gross_PnL_mr,
+                        'net_PnL_mr': net_PnL_mr,
+                        'av_daily_ntrans': av_daily_ntrans
+                    }, index=[0])
+
+                    # Append results to the summary
+                    summary_all_2MAs = pd.concat([summary_all_2MAs, summary], ignore_index=True)
+```
+
+```{python}
+#| echo: false
+# Create separate heatmaps for each quarter
+for quarter in quarters:
+    quarter_data = summary_all_2MAs[summary_all_2MAs['quarter'] == quarter]
+    
+    # Create figure with 2 subplots side by side
+    fig, axes = plt.subplots(1, 2, figsize=(8, 3))
+    
+    # Plot momentum strategy heatmap
+    quarter_data_pivot_mom = quarter_data.pivot(index='fastEMA', columns='slowEMA', values='net_SR_mom')
+    im1 = axes[0].imshow(quarter_data_pivot_mom.values, cmap='coolwarm', aspect='auto')
+    axes[0].set_xticks(range(len(quarter_data_pivot_mom.columns)))
+    axes[0].set_yticks(range(len(quarter_data_pivot_mom.index)))
+    axes[0].set_xticklabels(quarter_data_pivot_mom.columns)
+    axes[0].set_yticklabels(quarter_data_pivot_mom.index)
+    axes[0].set_xlabel('slowEMA')
+    axes[0].set_ylabel('fastEMA')
+    axes[0].set_title(f'Net Sharpe Ratio (Momentum) - {quarter}')
+    plt.colorbar(im1, ax=axes[0])
+    
+    # Plot mean reversion strategy heatmap
+    quarter_data_pivot_mr = quarter_data.pivot(index='fastEMA', columns='slowEMA', values='net_SR_mr')
+    im2 = axes[1].imshow(quarter_data_pivot_mr.values, cmap='coolwarm', aspect='auto')
+    axes[1].set_xticks(range(len(quarter_data_pivot_mr.columns)))
+    axes[1].set_yticks(range(len(quarter_data_pivot_mr.index)))
+    axes[1].set_xticklabels(quarter_data_pivot_mr.columns)
+    axes[1].set_yticklabels(quarter_data_pivot_mr.index)
+    axes[1].set_xlabel('slowEMA')
+    axes[1].set_ylabel('fastEMA')
+    axes[1].set_title(f'Net Sharpe Ratio (Mean Reversion) - {quarter}')
+    plt.colorbar(im2, ax=axes[1])
+    
+    plt.tight_layout()
+    plt.show()
+```
+
+And here are the results for the spread based on returns:
+
+```{python}
+#| echo: false
+#| output: false
+# we check various parameter combinations in a loop
+
+def mySR(x, scale):
+    return np.sqrt(scale) * np.nanmean(x) / np.nanstd(x)
+
+fastEMA_parameters = [15, 20, 30, 45, 60, 75, 90]
+slowEMA_parameters = [90, 120, 150, 180, 240, 300, 360, 420]
+
+# create a dataframe to store results
+summary_all_2MAs = pd.DataFrame()
+
+# Loop over each quarter
+for quarter in quarters:
+    print(f"\nProcessing quarter: {quarter}")
+    
+    # Filter data for the current quarter
+    quarter_mask = all_data_2['quarter'] == quarter
+    quarter_data = all_data_2[quarter_mask].copy()
+    
+    # Loop over different parameter combinations
+    for fastEMA in fastEMA_parameters:
+        for slowEMA in slowEMA_parameters:
+                    
+                    # ensure that fastEMA is less than slowEMA
+                    if fastEMA >= slowEMA:
+                        continue
+
+                    print(f"  fastEMA = {fastEMA}, slowEMA = {slowEMA}")
+
+                    # We calculate the appropriate EMA
+                    fastEMA_values = quarter_data['spread_sdsratio'].ewm(span = fastEMA).mean()
+                    slowEMA_values = quarter_data['spread_sdsratio'].ewm(span = slowEMA).mean()
+
+                    # Insert NaNs wherever the original price is missing
+                    fastEMA_values[quarter_data['spread_sdsratio'].isna()] = np.nan
+                    slowEMA_values[quarter_data['spread_sdsratio'].isna()] = np.nan 
+
+                    # Calculate position for momentum strategy
+                    cond2b_mom_long = fastEMA_values.shift(1) > slowEMA_values.shift(1)
+                    
+                    # let's add filters that check for the presence of NaN values
+                    fastEMA_nonmiss = fastEMA_values.shift(1).notna()
+                    slowEMA_nonmiss = slowEMA_values.shift(1).notna()
+
+                    # Now we can add these conditions to our strategies
+                    # if any of the values is missing,
+                    # we cannot make a position decision
+
+                    pos_mom = np.where(fastEMA_nonmiss & slowEMA_nonmiss,
+                                       np.where(cond2b_mom_long, 1, -1),
+                                       np.nan)
+                    pos_mr = -pos_mom 
+
+                    # Set position to 0 where pos_flat is 1
+                    pos_flat_quarter = pos_flat[quarter_mask]
+                    pos_mom[pos_flat_quarter == 1] = 0
+                    pos_mr[pos_flat_quarter == 1] = 0
+                    
+                    # Calculate gross pnl
+                    pnl_gross_mom = pos_mom * (quarter_data['NQ'].diff() - quarter_data['SP'].diff() * quarter_data['sds_ratio'])
+                    pnl_gross_mr = pos_mr * (quarter_data['NQ'].diff() - quarter_data['SP'].diff() * quarter_data['sds_ratio'])
+                    # point value for E6
+
+                    # Calculate number of transactions
+                    ntrans = np.abs(np.diff(pos_mom, prepend = 0))
+
+                    # Calculate net pnl
+                    pnl_net_mom = pnl_gross_mom - ntrans * (12 + quarter_data['sds_ratio']*12)  # cost $10 per transaction on E6
+                    pnl_net_mr = pnl_gross_mr - ntrans * (12 + quarter_data['sds_ratio']*12)   # cost $10 per transaction on E6
+                      
+                    # Aggregate to daily data
+                    pnl_gross_mom = pd.Series(pnl_gross_mom)
+                    pnl_gross_mom.index = quarter_data['spread_sdsratio'].index.time
+                    pnl_gross_mom_d = pnl_gross_mom.groupby(quarter_data['spread_sdsratio'].index.date).sum()
+                    pnl_gross_mr = pd.Series(pnl_gross_mr)
+                    pnl_gross_mr.index = quarter_data['spread_sdsratio'].index.time
+                    pnl_gross_mr_d = pnl_gross_mr.groupby(quarter_data['spread_sdsratio'].index.date).sum()
+
+                    pnl_net_mom = pd.Series(pnl_net_mom)
+                    pnl_net_mom.index = quarter_data['spread_sdsratio'].index.time
+                    pnl_net_mom_d = pnl_net_mom.groupby(quarter_data['spread_sdsratio'].index.date).sum()
+                    pnl_net_mr = pd.Series(pnl_net_mr)
+                    pnl_net_mr.index = quarter_data['spread_sdsratio'].index.time
+                    pnl_net_mr_d = pnl_net_mr.groupby(quarter_data['spread_sdsratio'].index.date).sum()
+
+                    ntrans = pd.Series(ntrans)
+                    ntrans.index = quarter_data['spread_sdsratio'].index.time
+                    ntrans_d = ntrans.groupby(quarter_data['spread_sdsratio'].index.date).sum()
+
+                    # Calculate Sharpe Ratio and PnL
+                    gross_SR_mom = mySR(pnl_gross_mom_d, scale=252)
+                    net_SR_mom = mySR(pnl_net_mom_d, scale=252)
+                    gross_PnL_mom = pnl_gross_mom_d.sum()
+                    net_PnL_mom = pnl_net_mom_d.sum()
+                    gross_SR_mr = mySR(pnl_gross_mr_d, scale=252)
+                    net_SR_mr = mySR(pnl_net_mr_d, scale=252)
+                    gross_PnL_mr = pnl_gross_mr_d.sum()
+                    net_PnL_mr = pnl_net_mr_d.sum()
+
+                    av_daily_ntrans = ntrans_d.mean()
+
+                    # Collect necessary results into one object
+                    summary = pd.DataFrame({
+                        'fastEMA': fastEMA,
+                        'slowEMA': slowEMA,
+                        'quarter': quarter,
+                        'gross_SR_mom': gross_SR_mom,
+                        'net_SR_mom': net_SR_mom,
+                        'gross_PnL_mom': gross_PnL_mom,
+                        'net_PnL_mom': net_PnL_mom,
+                        'gross_SR_mr': gross_SR_mr,
+                        'net_SR_mr': net_SR_mr,
+                        'gross_PnL_mr': gross_PnL_mr,
+                        'net_PnL_mr': net_PnL_mr,
+                        'av_daily_ntrans': av_daily_ntrans
+                    }, index=[0])
+
+                    # Append results to the summary
+                    summary_all_2MAs = pd.concat([summary_all_2MAs, summary], ignore_index=True)
+```
+
+```{python}
+#| echo: false
+#| # Create separate heatmaps for each quarter
+for quarter in quarters:
+    quarter_data = summary_all_2MAs[summary_all_2MAs['quarter'] == quarter]
+    
+    # Create figure with 2 subplots side by side
+    fig, axes = plt.subplots(1, 2, figsize=(8, 3))
+    
+    # Plot momentum strategy heatmap
+    quarter_data_pivot_mom = quarter_data.pivot(index='fastEMA', columns='slowEMA', values='net_SR_mom')
+    im1 = axes[0].imshow(quarter_data_pivot_mom.values, cmap='coolwarm', aspect='auto')
+    axes[0].set_xticks(range(len(quarter_data_pivot_mom.columns)))
+    axes[0].set_yticks(range(len(quarter_data_pivot_mom.index)))
+    axes[0].set_xticklabels(quarter_data_pivot_mom.columns)
+    axes[0].set_yticklabels(quarter_data_pivot_mom.index)
+    axes[0].set_xlabel('slowEMA')
+    axes[0].set_ylabel('fastEMA')
+    axes[0].set_title(f'Net Sharpe Ratio (Momentum) - {quarter}')
+    plt.colorbar(im1, ax=axes[0])
+    
+    # Plot mean reversion strategy heatmap
+    quarter_data_pivot_mr = quarter_data.pivot(index='fastEMA', columns='slowEMA', values='net_SR_mr')
+    im2 = axes[1].imshow(quarter_data_pivot_mr.values, cmap='coolwarm', aspect='auto')
+    axes[1].set_xticks(range(len(quarter_data_pivot_mr.columns)))
+    axes[1].set_yticks(range(len(quarter_data_pivot_mr.index)))
+    axes[1].set_xticklabels(quarter_data_pivot_mr.columns)
+    axes[1].set_yticklabels(quarter_data_pivot_mr.index)
+    axes[1].set_xlabel('slowEMA')
+    axes[1].set_ylabel('fastEMA')
+    axes[1].set_title(f'Net Sharpe Ratio (Mean Reversion) - {quarter}')
+    plt.colorbar(im2, ax=axes[1])
+    
+    plt.tight_layout()
+    plt.show()
+```
+
+We can see that the results are not very promising, both momentum and mean reversion strategies for spread based on prices and returns. Therefore, we have decided to try different approach based on volatility breakout model.
+
+### Volatility breakout model 
+
+We have tried mean-reverting strategies based on volatility breakout model. We run the analysis for various combinations of the parameters. The profitability of the strategies for spread based on prices and returns can be sumarized by the heatmap of Net SR below. The results are a little bit better, but Net  SR is still negative.
+
+```{python}
+#| echo: false
+#| output: false
+
+from functions.position_VB import positionVB
+
+# lets do a comparison within a loop for spread_avratio and spread_sdsratio
+
+def mySR(x, scale):
+    return np.sqrt(scale) * np.nanmean(x) / np.nanstd(x)
+
+volat_sd_parameters = [60, 90, 120, 150, 180]
+m_parameters = [0.5, 1, 1.5, 2, 2.5, 3, 3.5]
+
+# create a dataframe to store results
+summary_all_volatility = pd.DataFrame()
+
+# Loop through each quarter
+for quarter in quarters:
+    print(f"Processing quarter: {quarter}")
+    
+    # Filter data for the current quarter
+    quarter_mask = all_data_2["quarter"] == quarter
+    quarter_data = all_data_2[quarter_mask].copy()
+    
+    for volat_sd in volat_sd_parameters:
+        for m in m_parameters:
+            print(f"  volat_sd: {volat_sd}, m: {m}")
+
+            # calculate the elements of the strategy
+            NQ = quarter_data["NQ"]
+            SP = quarter_data["SP"]
+
+            # spread based on average ratio
+            signal_avratio = NQ - (quarter_data["av_ratio"] * SP)
+            std_spread_avratio = signal_avratio.rolling(window=volat_sd).std()
+            upper_bound_avratio = m * std_spread_avratio
+            lower_bound_avratio = -m * std_spread_avratio
+            # position
+            pos_avratio = positionVB(signal = signal_avratio.to_numpy(),
+                                    lower = lower_bound_avratio.to_numpy(),
+                                    upper = upper_bound_avratio.to_numpy()  ,
+                                    pos_flat=np.array(pos_flat)[np.array(quarter_mask)],
+                                    strategy = "mr")
+            # number of transactions
+            n_trans_avratio = np.abs(np.diff(pos_avratio, prepend = 0))
+            # convert to pd.Series and set the index
+            n_trans_avratio = pd.Series(n_trans_avratio, index=quarter_data.index)
+
+            # gross and net PnL
+            pnl_gross_avratio = pos_avratio * (quarter_data["NQ"].diff() - quarter_data["av_ratio"] * quarter_data["SP"].diff())
+            pnl_net_avratio = pnl_gross_avratio - n_trans_avratio * (12 + quarter_data["av_ratio"] * 12)
+
+            # spread based on standard deviation ratio
+            signal_sdsratio = quarter_data["spread_sdsratio"]
+            std_spread_sdsratio = signal_sdsratio.rolling(window=volat_sd).std()
+            upper_bound_sdsratio = m * std_spread_sdsratio
+            lower_bound_sdsratio = -m * std_spread_sdsratio
+            # position
+            pos_sdsratio = positionVB(signal = signal_sdsratio.to_numpy(),
+                                    lower = lower_bound_sdsratio.to_numpy(),
+                                    upper = upper_bound_sdsratio.to_numpy(),
+                                    pos_flat = np.array(pos_flat)[np.array(quarter_mask)],
+                                    strategy = "mr")
+
+            # number of transactions
+            n_trans_sdsratio = np.abs(np.diff(pos_sdsratio, prepend = 0))
+            # convert to pd.Series and set the index
+            n_trans_sdsratio = pd.Series(n_trans_sdsratio, index=quarter_data.index)
+
+            # !!!!! signal is based on returns, but PnL on prices !!!!
+            pnl_gross_sdsratio = pos_sdsratio * (quarter_data["NQ"].diff() - quarter_data["sds_ratio"] * quarter_data["SP"].diff())
+            pnl_net_sdsratio = pnl_gross_sdsratio - n_trans_sdsratio * (12 + quarter_data["sds_ratio"] * 12)
+
+            # aggregate to daily
+            pnl_gross_avratio_daily = pnl_gross_avratio.resample("D").sum().dropna()
+            pnl_gross_sdsratio_daily = pnl_gross_sdsratio.resample("D").sum().dropna()
+            pnl_net_avratio_daily = pnl_net_avratio.resample("D").sum().dropna()
+            pnl_net_sdsratio_daily = pnl_net_sdsratio.resample("D").sum().dropna()
+            n_trans_avratio_daily = n_trans_avratio.resample("D").sum().dropna()
+            n_trans_sdsratio_daily = n_trans_sdsratio.resample("D").sum().dropna()
+
+            # calculate summary measures
+            gross_SR_avratio = mySR(pnl_gross_avratio_daily, scale = 252)
+            net_SR_avratio = mySR(pnl_net_avratio_daily, scale = 252)
+            gross_PnL_avratio = pnl_gross_avratio_daily.sum()
+            net_PnL_avratio = pnl_net_avratio_daily.sum()
+            av_daily_ntrans_avratio = n_trans_avratio_daily.mean()
+
+            gross_SR_sdsratio = mySR(pnl_gross_sdsratio_daily, scale = 252)
+            net_SR_sdsratio = mySR(pnl_net_sdsratio_daily, scale = 252)
+            gross_PnL_sdsratio = pnl_gross_sdsratio_daily.sum()
+            net_PnL_sdsratio = pnl_net_sdsratio_daily.sum()
+            av_daily_ntrans_sdsratio = n_trans_sdsratio_daily.mean()
+
+            # Collect the necessary results into one object
+            summary = pd.DataFrame({
+                    'volat_sd': [volat_sd],
+                    'm': [m],
+                    'quarter': [quarter],
+                    'gross_SR_avratio': [gross_SR_avratio],
+                    'net_SR_avratio': [net_SR_avratio],
+                    'gross_PnL_avratio': [gross_PnL_avratio],
+                    'net_PnL_avratio': [net_PnL_avratio],
+                    'av_daily_ntrans_avratio': [av_daily_ntrans_avratio],
+                    'gross_SR_sdsratio': [gross_SR_sdsratio],
+                    'net_SR_sdsratio': [net_SR_sdsratio],
+                    'gross_PnL_sdsratio': [gross_PnL_sdsratio],
+                    'net_PnL_sdsratio': [net_PnL_sdsratio],
+                    'av_daily_ntrans_sdsratio': [av_daily_ntrans_sdsratio]
+                    }, index=[0])
+
+            # Append the results to the summary
+            summary_all_volatility = pd.concat([summary_all_volatility,
+                                            summary], ignore_index=True)
+```
+
+```{python}
+#| echo: false
+
+# Create separate heatmaps for each quarter
+for quarter in quarters:
+    quarter_data = summary_all_volatility[summary_all_volatility['quarter'] == quarter]
+    
+    # Create figure with 2 subplots side by side
+    fig, axes = plt.subplots(1, 2, figsize=(8, 3))
+    
+    # Plot momentum strategy heatmap
+    quarter_data_pivot_mom = quarter_data.pivot(index='volat_sd', columns='m', values='net_SR_avratio')
+    im1 = axes[0].imshow(quarter_data_pivot_mom.values, cmap='coolwarm', aspect='auto')
+    axes[0].set_xticks(range(len(quarter_data_pivot_mom.columns)))
+    axes[0].set_yticks(range(len(quarter_data_pivot_mom.index)))
+    axes[0].set_xticklabels(quarter_data_pivot_mom.columns)
+    axes[0].set_yticklabels(quarter_data_pivot_mom.index)
+    axes[0].set_xlabel('m')
+    axes[0].set_ylabel('volat_sd')
+    axes[0].set_title(f'Net SR (av_ratio) - {quarter}')
+    plt.colorbar(im1, ax=axes[0])
+    
+    # Plot mean reversion strategy heatmap
+    quarter_data_pivot_mr = quarter_data.pivot(index='volat_sd', columns='m', values='net_SR_sdsratio')
+    im2 = axes[1].imshow(quarter_data_pivot_mr.values, cmap='coolwarm', aspect='auto')
+    axes[1].set_xticks(range(len(quarter_data_pivot_mr.columns)))
+    axes[1].set_yticks(range(len(quarter_data_pivot_mr.index)))
+    axes[1].set_xticklabels(quarter_data_pivot_mr.columns)
+    axes[1].set_yticklabels(quarter_data_pivot_mr.index)
+    axes[0].set_xlabel('m')
+    axes[0].set_ylabel('volat_sd')
+    axes[1].set_title(f'Net SR (sds_ratio) - {quarter}')
+    plt.colorbar(im2, ax=axes[1])
+    
+    plt.tight_layout()
+    plt.show()
+```
+
+### Additional filtering
+To further improve the performance of the startegy, we tried various filtering techniques based on correlation, cointegration and regression coefficients between the two instruments. However, none of these techniques brought significant improvement in the results.
+
+```{python}
+#| 
+#| 
+
+# Calculate daily correlations for each quarter separately
+all_correlation_results = []
+
+for quarter in quarters:
+    # Filter data for the current quarter
+    quarter_data = all_data_2[all_data_2['quarter'] == quarter]
+    
+    # Calculate daily correlations for this quarter
+    correlation_p_daily = quarter_data.resample("D").apply(lambda x: x['NQ'].corr(x['SP']))
+    correlation_r_daily = quarter_data.resample("D").apply(lambda x: x['r_NQ'].corr(x['r_SP']))
+    
+    # Drop NaN values
+    correlation_p_daily = correlation_p_daily.dropna()
+    correlation_r_daily = correlation_r_daily.dropna()
+    
+    # Create a DataFrame with quarter indicator
+    quarter_correlations = pd.DataFrame({
+        'correlation_prices': correlation_p_daily,
+        'correlation_returns': correlation_r_daily,
+        'quarter': quarter
+    })
+    
+    all_correlation_results.append(quarter_correlations)
+    
+    print(f"\n{quarter}:")
+    print(f"Daily Price Correlation - Mean: {correlation_p_daily.mean():.4f}, Std: {correlation_p_daily.std():.4f}")
+    print(f"Daily Returns Correlation - Mean: {correlation_r_daily.mean():.4f}, Std: {correlation_r_daily.std():.4f}")
+
+    # Create figure with 2 subplots side by side
+    fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+    
+    # Plot price correlation
+    axes[0].plot(correlation_p_daily.index, correlation_p_daily.values)
+    axes[0].set_title(f"Daily correlation between NQ and SP prices - {quarter}")
+    axes[0].set_xlabel("Date")
+    axes[0].set_ylabel("Correlation")
+    axes[0].grid(True, alpha=0.3)
+    axes[0].tick_params(axis='x', rotation=45)
+    
+    # Plot returns correlation
+    axes[1].plot(correlation_r_daily.index, correlation_r_daily.values, color='orange')
+    axes[1].set_title(f"Daily correlation between NQ and SP returns - {quarter}")
+    axes[1].set_xlabel("Date")
+    axes[1].set_ylabel("Correlation")
+    axes[1].grid(True, alpha=0.3)
+    axes[1].tick_params(axis='x', rotation=45)
+    
+    plt.tight_layout()
+    plt.show()
+
+# Combine all quarters into one DataFrame
+daily_correlations = pd.concat(all_correlation_results, axis=0)
+```
+
+```{python}
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+
+def regression_selected(df, y_col, x_col, add_const=True):
+
+    # If the group is empty return NaNs
+    if df.empty:
+        return pd.Series({
+            'beta': np.nan,
+            'pvalue': np.nan,
+            'tstat': np.nan,
+            'r2': np.nan
+        })
+
+    y = df[y_col]
+    X = df[[x_col]]  # keep as DataFrame
+
+    if add_const:
+        X = sm.add_constant(X)
+        x_param_name = x_col      # slope name in params/pvalues/etc.
+    else:
+        x_param_name = x_col      # only column present
+
+    model = sm.OLS(y, X).fit()
+
+    return pd.Series({
+        'beta':   model.params[x_param_name],
+        'pvalue': model.pvalues[x_param_name],
+        'tstat':  model.tvalues[x_param_name],
+        'r2':     model.rsquared
+    })
+
+# Calculate regression for each quarter separately
+regression_results_by_quarter = []
+daily_regressions_P_all = []
+daily_regressions_R_all = []
+
+for quarter in quarters:
+    print(f"Processing quarter: {quarter}")
+    
+    # Filter data for the current quarter
+    quarter_data = all_data_2[all_data_2['quarter'] == quarter].copy()
+    
+    # Drop NaN values for regression
+    quarter_data_clean = quarter_data.dropna(subset=['NQ', 'SP'])
+
+    daily_regressions_P = quarter_data_clean.resample("D").apply(
+        lambda x: regression_selected(x, y_col='SP', x_col='NQ', add_const=True)
+    ).dropna()
+
+    daily_regressions_R = quarter_data_clean.resample("D").apply(
+        lambda x: regression_selected(x, y_col='r_SP', x_col='r_NQ', add_const=True)
+    ).dropna()
+
+    daily_regressions_P['quarter'] = quarter
+    daily_regressions_R['quarter'] = quarter
+
+    daily_regressions_P_all.append(daily_regressions_P)
+    daily_regressions_R_all.append(daily_regressions_R)
+
+# Create summary dataframe
+daily_regressions_P_all = pd.DataFrame(pd.concat(daily_regressions_P_all))
+daily_regressions_R_all = pd.DataFrame(pd.concat(daily_regressions_R_all))
+```
+```{python}
+# lets use PP and KPSS tests for cointegration
+# based on the functions from lab03
+# extended to control for empty dataframes
+
+from arch.unitroot import PhillipsPerron, KPSS
+
+# the function to get residuals from OLS regression
+def _eg_residuals(df: pd.DataFrame, col1: str, col2: str):
+    X = sm.add_constant(df[col1].values, has_constant="add")
+    y = df[col2].values
+    model = sm.OLS(y, X).fit()
+    return model.resid
+
+# the function for PP p-value
+def eg_pp_pvalue(df: pd.DataFrame, col1: str, col2: str, 
+                 trend: str = "c") -> float:
+    # If the group is empty return NaN
+    if df.empty:
+        return np.nan
+
+    resid = _eg_residuals(df, col1, col2)
+    return float(PhillipsPerron(resid, trend=trend).pvalue)
+
+# the function for KPSS p-value
+def eg_kpss_pvalue(df: pd.DataFrame, col1: str, col2: str, 
+                   trend: str = "c") -> float:
+    # If the group is empty return NaN
+    if df.empty:
+        return np.nan
+    resid = _eg_residuals(df, col1, col2)
+    return float(KPSS(resid, trend=trend).pvalue)
+
+# how about daily cointegration tests?
+
+# Group by date and calculate cointegration tests for each day
+# Calculate daily cointegration tests for each quarter separately
+daily_PP_all = []
+daily_KPSS_all = []
+
+for quarter in quarters:
+    print(f"Processing quarter: {quarter}")
+    
+    # Filter data for the current quarter
+    quarter_data = all_data_2[all_data_2['quarter'] == quarter].dropna(subset=['NQ', 'SP'])
+    
+    # Group by date and calculate cointegration tests for each day
+    for date, group in quarter_data.groupby(quarter_data.index.date):
+        if len(group) > 10:  # Ensure enough data points for the test
+            try:
+                pp_pvalue = eg_pp_pvalue(group, "NQ", "SP")
+                daily_PP_all.append({'date': date, 'pvalue': pp_pvalue, 'quarter': quarter})
+            except:
+                pass
+            
+            try:
+                kpss_pvalue = eg_kpss_pvalue(group, "NQ", "SP")
+                daily_KPSS_all.append({'date': date, 'pvalue': kpss_pvalue, 'quarter': quarter})
+            except:
+                pass
+
+# Convert to DataFrames with date index
+daily_PP_tests = pd.DataFrame(daily_PP_all).set_index('date')
+daily_KPSS_tests = pd.DataFrame(daily_KPSS_all).set_index('date')
+
+# Remove NaN values
+daily_PP_tests = daily_PP_tests.dropna(subset=['pvalue'])
+daily_KPSS_tests = daily_KPSS_tests.dropna(subset=['pvalue'])
+
+all_data_2_nonan = all_data_2.dropna(subset=['NQ', 'SP'])
+# Ensure the index is datetime and localized
+daily_PP_tests.index = pd.to_datetime(daily_PP_tests.index).tz_localize(all_data_2_nonan.index.tz)
+daily_KPSS_tests.index = pd.to_datetime(daily_KPSS_tests.index).tz_localize(all_data_2_nonan.index.tz)
+```
+```{python}
+#| echo: false
+#| output: false
+# Merge all dataframes using outer join to preserve all dates
+combined_daily_stats = daily_correlations.copy()
+
+# Merge regression results for prices
+combined_daily_stats = combined_daily_stats.merge(
+    daily_regressions_P_all.add_prefix("regression_price_"),
+    left_index=True,
+    right_index=True,
+    how='outer'
+)
+
+# Merge regression results for returns
+combined_daily_stats = combined_daily_stats.merge(
+    daily_regressions_R_all.add_prefix("regression_return_"),
+    left_index=True,
+    right_index=True,
+    how='outer'
+)
+
+# Merge PP test results
+combined_daily_stats = combined_daily_stats.merge(
+    daily_PP_tests[['pvalue']].rename(columns={'pvalue': 'PP_pvalue'}),
+    left_index=True,
+    right_index=True,
+    how='outer'
+)
+
+# Merge KPSS test results
+combined_daily_stats = combined_daily_stats.merge(
+    daily_KPSS_tests[['pvalue']].rename(columns={'pvalue': 'KPSS_pvalue'}),
+    left_index=True,
+    right_index=True,
+    how='outer'
+)
+# based on the combined daily statistics
+# lets create filtering rules
+# storing them as new columns, where
+# 1 means that the filter condition is met (trade on that day)
+# and 0 means that it is not met (do NOT trade on that day)
+
+# based on correlation between prices
+combined_daily_stats['filter_correlation_prices_06'] = (combined_daily_stats['correlation_prices'] > 0.6) * 1
+combined_daily_stats['filter_correlation_prices_07'] = (combined_daily_stats['correlation_prices'] > 0.7) * 1
+combined_daily_stats['filter_correlation_prices_08'] = (combined_daily_stats['correlation_prices'] > 0.8) * 1
+combined_daily_stats['filter_correlation_prices_09'] = (combined_daily_stats['correlation_prices'] > 0.9) * 1
+# based on correlation between returns
+combined_daily_stats['filter_correlation_returns_06'] = (combined_daily_stats['correlation_returns'] > 0.6) * 1
+combined_daily_stats['filter_correlation_returns_07'] = (combined_daily_stats['correlation_returns'] > 0.7) * 1
+combined_daily_stats['filter_correlation_returns_08'] = (combined_daily_stats['correlation_returns'] > 0.8) * 1
+# based on regression for prices - significant beta above some threshold
+combined_daily_stats['filter_regression_price_beta_sig_above0'] = ((combined_daily_stats['regression_price_beta'] > 0) & (combined_daily_stats['regression_price_pvalue'] < 0.05)) * 1
+combined_daily_stats['filter_regression_price_beta_sig_above025'] = ((combined_daily_stats['regression_price_beta'] > 0.25) & (combined_daily_stats['regression_price_pvalue'] < 0.05)) * 1
+combined_daily_stats['filter_regression_price_beta_sig_above05'] = ((combined_daily_stats['regression_price_beta'] > 0.5) & (combined_daily_stats['regression_price_pvalue'] < 0.05)) * 1
+# based on regression for returns - significant beta above some threshold
+combined_daily_stats['filter_regression_return_beta_sig_above0'] = ((combined_daily_stats['regression_return_beta'] > 0) & (combined_daily_stats['regression_return_pvalue'] < 0.05)) * 1
+combined_daily_stats['filter_regression_return_beta_sig_above025'] = ((combined_daily_stats['regression_return_beta'] > 0.25) & (combined_daily_stats['regression_return_pvalue'] < 0.05)) * 1
+combined_daily_stats['filter_regression_return_beta_sig_above05'] = ((combined_daily_stats['regression_return_beta'] > 0.5) & (combined_daily_stats['regression_return_pvalue'] < 0.05)) * 1
+# cointegration based filters
+combined_daily_stats['filter_PP_cointegration_10'] = (combined_daily_stats['PP_pvalue'] < 0.1) * 1
+combined_daily_stats['filter_PP_cointegration_05'] = (combined_daily_stats['PP_pvalue'] < 0.05) * 1
+combined_daily_stats['filter_PP_cointegration_01'] = (combined_daily_stats['PP_pvalue'] < 0.01) * 1
+combined_daily_stats['filter_KPSS_cointegration_10'] = (combined_daily_stats['KPSS_pvalue'] > 0.1) * 1
+combined_daily_stats['filter_KPSS_cointegration_05'] = (combined_daily_stats['KPSS_pvalue'] > 0.05) * 1
+combined_daily_stats['filter_KPSS_cointegration_01'] = (combined_daily_stats['KPSS_pvalue'] > 0.01) * 1
+
+combined_daily_stats.index = combined_daily_stats.index.tz_convert(None)
+combined_daily_stats.index = combined_daily_stats.index + pd.to_timedelta(np.where(combined_daily_stats.index.day_name() == "Friday", "3D", "1D")) 
 
 
+```
+
+```{python}
+#| echo: false
+summary_daily = pd.DataFrame()
+
+# Loop through each quarter
+for quarter in quarters:
+        print(f"Processing quarter: {quarter}")
+        
+        # Filter data for the current quarter
+        quarter_mask = all_data_2["quarter"] == quarter
+        quarter_data = all_data_2[quarter_mask].copy()
+        
+        # Fixed parameters based on your analysis
+        volat_sd = 90
+        m = 3.5
+        
+        print(f"  volat_sd: {volat_sd}, m: {m}")
+        
+        # Calculate signal and bounds
+        signal_sdsratio = quarter_data["spread_sdsratio"]
+        std_spread_sdsratio = signal_sdsratio.rolling(window=volat_sd).std()
+        upper_bound_sdsratio = m * std_spread_sdsratio
+        lower_bound_sdsratio = -m * std_spread_sdsratio
+        
+        # Position
+        pos_sdsratio = positionVB(signal=signal_sdsratio.to_numpy(),
+                                                          lower=lower_bound_sdsratio.to_numpy(),
+                                                          upper=upper_bound_sdsratio.to_numpy(),
+                                                          pos_flat=np.array(pos_flat)[np.array(quarter_mask)],
+                                                          strategy="mr")
+        
+        # Number of transactions
+        n_trans_sdsratio = np.abs(np.diff(pos_sdsratio, prepend=0))
+        n_trans_sdsratio = pd.Series(n_trans_sdsratio, index=quarter_data.index)
+        
+        # Calculate PnL
+        pnl_gross_sdsratio = pos_sdsratio * (quarter_data["NQ"].diff() - quarter_data["sds_ratio"] * quarter_data["SP"].diff())
+        pnl_net_sdsratio = pnl_gross_sdsratio - n_trans_sdsratio * (12 + quarter_data["sds_ratio"] * 12)
+        
+        # Aggregate to daily
+        pnl_gross_sdsratio_daily = pnl_gross_sdsratio.resample("D").sum().dropna()
+        pnl_net_sdsratio_daily = pnl_net_sdsratio.resample("D").sum().dropna()
+        n_trans_sdsratio_daily = n_trans_sdsratio.resample("D").sum().dropna()
+        
+        # Calculate summary measures
+        gross_SR_sdsratio = mySR(pnl_gross_sdsratio_daily, scale=252)
+        net_SR_sdsratio = mySR(pnl_net_sdsratio_daily, scale=252)
+        gross_PnL_sdsratio = pnl_gross_sdsratio_daily.sum()
+        net_PnL_sdsratio = pnl_net_sdsratio_daily.sum()
+        av_daily_ntrans_sdsratio = n_trans_sdsratio_daily.mean()
+        
+        print(f"  Net SR: {net_SR_sdsratio:.4f}, Net PnL: {net_PnL_sdsratio:.2f}")
+        
+        # Create summary dataframe with quarter indicator
+        summary = pd.DataFrame({
+            'volat_sd': [volat_sd],
+            'm': [m],
+            'quarter': [quarter],
+            'gross_SR_sdsratio': [gross_SR_sdsratio],
+            'net_SR_sdsratio': [net_SR_sdsratio],
+            'gross_PnL_sdsratio': [gross_PnL_sdsratio],
+            'net_PnL_sdsratio': [net_PnL_sdsratio],
+            'av_daily_ntrans_sdsratio': [av_daily_ntrans_sdsratio],
+        })
+
+        summary_daily_stats = pd.DataFrame({
+                'quarter': quarter,
+                'pnl_gross_sdsratio': pnl_gross_sdsratio_daily,
+                'pnl_net_sdsratio': pnl_net_sdsratio_daily,
+                'n_trans_sdsratio': n_trans_sdsratio_daily})
+        
+        summary_daily = pd.concat([summary_daily, summary_daily_stats], ignore_index=False)
+
+        # Append to results (create if doesn't exist)
+        if 'summary_VB_optimal' not in locals():
+            summary_VB_optimal = summary.copy()
+        else:
+            summary_VB_optimal = pd.concat([summary_VB_optimal, summary], ignore_index=True)
+
+daily_pnls = summary_daily[summary_daily.index.dayofweek < 5]
+
+daily_pnls.index = daily_pnls.index.tz_localize(None)
+daily_pnls_filters = pd.concat([daily_pnls, 
+                                combined_daily_stats.filter(regex='^filter_')], axis=1)
+
+def mySR(x, scale):
+    return np.sqrt(scale) * np.nanmean(x) / np.nanstd(x)
+
+print("Gross PnL SR:", mySR(daily_pnls['pnl_gross_sdsratio'], scale = 252))
+print("Net PnL SR:", mySR(daily_pnls['pnl_net_sdsratio'], scale = 252))
+
+# and average number of trades per day
+print("Average number of trades per day:", daily_pnls['n_trans_sdsratio'].mean())
+
+pnl_gross_sdsratio_filtered = daily_pnls_filters['pnl_gross_sdsratio'] * daily_pnls_filters['filter_correlation_prices_06']
+pnl_net_sdsratio_filtered = daily_pnls_filters['pnl_net_sdsratio'] * daily_pnls_filters['filter_correlation_prices_06']
+
+print("Gross PnL SR after applying filter_correlation_prices_06:", 
+      mySR(pnl_gross_sdsratio_filtered, scale = 252))
+print("Net PnL SR after applying filter_correlation_prices_06:", 
+      mySR(pnl_net_sdsratio_filtered, scale = 252))
+
+# and average number of trades per day
+n_trades_filtered = daily_pnls_filters['n_trans_sdsratio'] * daily_pnls_filters['filter_correlation_prices_06']
+print("Average number of trades per day after applying filter_correlation_prices_06:", n_trades_filtered.mean())
+
+results_filters_by_quarter = []
+
+for quarter in quarters:
+    print(f"\nProcessing quarter: {quarter}")
+    
+    # Filter data for the current quarter
+    quarter_pnls = daily_pnls_filters[daily_pnls_filters['quarter'] == quarter]
+    
+    for col in daily_pnls_filters.columns:
+        if col.startswith('filter_'):
+            pnl_gross_filtered = quarter_pnls['pnl_gross_sdsratio'] * quarter_pnls[col]
+            pnl_net_filtered = quarter_pnls['pnl_net_sdsratio'] * quarter_pnls[col]
+            n_trades_filtered = quarter_pnls['n_trans_sdsratio'] * quarter_pnls[col]
+            
+            results_filters_by_quarter.append({
+                'quarter': quarter,
+                'filter': col,
+                'gross_SR': mySR(pnl_gross_filtered, scale=252),
+                'net_SR': mySR(pnl_net_filtered, scale=252),
+                'gross_PnL': pnl_gross_filtered.sum(),
+                'net_PnL': pnl_net_filtered.sum(),
+                'avg_n_trades_per_day': n_trades_filtered.mean()
+            })
+
+results_filters_by_quarter_df = pd.DataFrame(results_filters_by_quarter)
+
+results_filters_by_quarter_df.groupby('quarter').apply(lambda x: x.sort_values(by='net_SR', ascending=False))
+# Display the best filter for each quarter based on net_SR
+results_filters_by_quarter_df.loc[results_filters_by_quarter_df.groupby('quarter')['net_SR'].idxmax()]
+
+```
+
+We can see that none of the filters were able to improve the performance of the strategy in a consistent manner across all quarters. Therefore, we have decided to proceed with single asset strategies. We can see that considering spreads increased transaction costs, due to trading both instruments, negatively impact the net PnL and Sharpe ratios. Analyzing the example strategy for spreads, we can see that the gap between gross and net PnL is significant, indicating high transaction costs. Therefore, we have decided to proceed with single asset strategies.
+
+## Single asset strategies
+
+After analyzing various strategies based on spreads, we have decided to focus on single asset strategies for **SP**. We have tested both momentum and mean reversion strategies for each asset, using intersecting two moving avarages and volatility breakout models with different parameters.
+
+### Two moving averages strategy
+
+First, we have implemented the two moving averages strategy for **SP**. We have tested various combinations of fast and slow EMA parameters to find the optimal settings for the strategy. We can see on the heatmap of Net Sharpe Ratio, that certain combinations of parameters yield better results than for spread-based strategies. However, the performance is not satisfactory, regarding the sum of evaluation statistic across all quarters, represented on the last heatmap.
+
+```{python}
+#| echo: false
+#| output: false
+
+def mySR(x, scale):
+    return np.sqrt(scale) * np.nanmean(x) / np.nanstd(x)
+
+fastEMA_parameters = [15, 20, 30, 45, 60, 75, 90]
+slowEMA_parameters = [90, 120, 150, 180, 240, 300, 360, 420]
+
+# create an empty DataFrame to store summary for all quarters
+summary_2MAs = pd.DataFrame()
+
+for quarter in quarters:
+
+    print(f'Processing quarter: {quarter}')
+
+    data1 = pd.read_parquet(f'data/data1_{quarter}.parquet')
+
+    # Lets set the datetime index
+    data1.set_index('datetime', inplace = True)
+
+    # assumption 1
+    # do not use in calculations the data from the first and last 10 minutes
+    # of the session (9:31-9:40 and 15:51-16:00) – put missing values there,
+    data1.loc[data1.between_time("9:31", "9:40").index] = np.nan
+    data1.loc[data1.between_time("15:51", "16:00").index] = np.nan
+
+    # assumption 2
+    # let's create an object named "pos_flat"
+    # = 1 if position has to be flat (= 0) - we do not trade
+    # = 0 otherwise
+
+    # let's fill it first with zeros
+    pos_flat = np.zeros(len(data1))
+
+    # do not trade within the first 25 minutes of stocks quotations (9:31-9:55),
+    pos_flat[data1.index.time <= pd.to_datetime("9:55").time()] = 1
+
+    # do not hold positions overnight (exit all positions 20 minutes
+    # before the session end, i.e. at 15:40),
+    pos_flat[data1.index.time >= pd.to_datetime("15:40").time()] = 1
+
+    # apply the strategy
+    ##############################################################
+    SP = data1['SP']
+
+    for fastEMA in fastEMA_parameters:
+        for slowEMA in slowEMA_parameters:
+
+                    # ensure that fastEMA is less than slowEMA
+                    if fastEMA >= slowEMA:
+                        continue
+
+                    print(f"  fastEMA = {fastEMA}, slowEMA = {slowEMA}")
+
+                    # We calculate the appropriate EMA
+                    fastEMA_values = SP.ewm(span = fastEMA).mean()
+                    slowEMA_values = SP.ewm(span = slowEMA).mean()
+
+                    # Insert NaNs wherever the original price is missing
+                    fastEMA_values[data1['SP'].isna()] = np.nan
+                    slowEMA_values[data1['SP'].isna()] = np.nan
+
+                    # Calculate position for momentum strategy
+                    cond2b_mom_long = fastEMA_values.shift(1) > slowEMA_values.shift(1)
+
+                    # let's add filters that check for the presence of NaN values
+                    fastEMA_nonmiss = fastEMA_values.shift(1).notna()
+                    slowEMA_nonmiss = slowEMA_values.shift(1).notna()
+
+                    # Now we can add these conditions to our strategies
+                    # if any of the values is missing,
+                    # we cannot make a position decision
+
+                    pos_mom = np.where(fastEMA_nonmiss & slowEMA_nonmiss,
+                                       np.where(cond2b_mom_long, 1, -1),
+                                       np.nan)
+                    pos_mr = -pos_mom
+
+                    # Set position to 0 where pos_flat is 1
+                    pos_mom[pos_flat == 1] = 0
+                    pos_mr[pos_flat == 1] = 0
+
+                    # Calculate gross pnl
+                    pnl_gross_mom = np.where(np.isnan(pos_mom * data1["SP"].diff()), 0, pos_mom * data1["SP"].diff() * 50)
+                    pnl_gross_mr = np.where(np.isnan(pos_mr * data1["SP"].diff()), 0, pos_mr * data1["SP"].diff() * 50)
+                    # point value for SP
+
+                    # Calculate number of transactions
+                    ntrans = np.abs(np.diff(pos_mom, prepend = 0))
+
+                    # Calculate net pnl
+                    pnl_net_mom = pnl_gross_mom - ntrans * 12 # cost $12 per transaction
+                    pnl_net_mr = pnl_gross_mr - ntrans * 12   # cost $12 per transaction
+
+                    # Aggregate to daily data
+                    pnl_gross_mom = pd.Series(pnl_gross_mom)
+                    pnl_gross_mom.index = data1['SP'].index.time
+                    pnl_gross_mom_d = pnl_gross_mom.groupby(data1['SP'].index.date).sum()
+                    pnl_gross_mr = pd.Series(pnl_gross_mr)
+                    pnl_gross_mr.index = data1['SP'].index.time
+                    pnl_gross_mr_d = pnl_gross_mr.groupby(data1['SP'].index.date).sum()
+
+                    pnl_net_mom = pd.Series(pnl_net_mom)
+                    pnl_net_mom.index = data1['SP'].index.time
+                    pnl_net_mom_d = pnl_net_mom.groupby(data1['SP'].index.date).sum()
+                    pnl_net_mr = pd.Series(pnl_net_mr)
+                    pnl_net_mr.index = data1['SP'].index.time
+                    pnl_net_mr_d = pnl_net_mr.groupby(data1['SP'].index.date).sum()
+
+                    ntrans = pd.Series(ntrans)
+                    ntrans.index = data1['SP'].index.time
+                    ntrans_d = ntrans.groupby(data1['SP'].index.date).sum()
+
+                    # Calculate Sharpe Ratio and PnL
+                    gross_SR_mom = mySR(pnl_gross_mom_d, scale=252)
+                    net_SR_mom = mySR(pnl_net_mom_d, scale=252)
+                    gross_PnL_mom = pnl_gross_mom_d.sum()
+                    net_PnL_mom = pnl_net_mom_d.sum()
+                    gross_SR_mr = mySR(pnl_gross_mr_d, scale=252)
+                    net_SR_mr = mySR(pnl_net_mr_d, scale=252)
+                    gross_PnL_mr = pnl_gross_mr_d.sum()
+                    net_PnL_mr = pnl_net_mr_d.sum()
+
+                    av_daily_ntrans = ntrans_d.mean()
+                    stat_mom = (net_SR_mom - 0.5) * np.maximum(0, np.log(np.abs(net_PnL_mom/1000)))
+                    stat_mr = (net_SR_mr - 0.5) * np.maximum(0, np.log(np.abs(net_PnL_mr/1000)))
+
+                    # Collect necessary results into one object
+                    summary = pd.DataFrame({
+                        'fastEMA': fastEMA,
+                        'slowEMA': slowEMA,
+                        'quarter': quarter,
+                        'gross_SR_mom': gross_SR_mom,
+                        'net_SR_mom': net_SR_mom,
+                        'gross_PnL_mom': gross_PnL_mom,
+                        'net_PnL_mom': net_PnL_mom,
+                        'gross_SR_mr': gross_SR_mr,
+                        'net_SR_mr': net_SR_mr,
+                        'gross_PnL_mr': gross_PnL_mr,
+                        'net_PnL_mr': net_PnL_mr,
+                        'av_daily_ntrans': av_daily_ntrans,
+                        'stat_mom': stat_mom,
+                        'stat_mr': stat_mr
+                    }, index=[0])
+
+                    # Append results to the summary
+                    summary_2MAs = pd.concat([summary_2MAs, summary], ignore_index=True)
+```
+
+```{python}
+#| echo: false
+#| 
+# Create separate heatmaps for each quarter
+for quarter in quarters:
+    quarter_data = summary_2MAs[summary_2MAs['quarter'] == quarter]
+
+    # Create figure with 2 subplots side by side
+    fig, axes = plt.subplots(1, 2, figsize=(8, 3))
+
+    # Plot momentum strategy heatmap
+    quarter_data_pivot_mom = quarter_data.pivot(index='fastEMA', columns='slowEMA', values='net_SR_mom')
+    im1 = axes[0].imshow(quarter_data_pivot_mom.values, cmap='coolwarm', aspect='auto')
+    axes[0].set_xticks(range(len(quarter_data_pivot_mom.columns)))
+    axes[0].set_yticks(range(len(quarter_data_pivot_mom.index)))
+    axes[0].set_xticklabels(quarter_data_pivot_mom.columns)
+    axes[0].set_yticklabels(quarter_data_pivot_mom.index)
+    axes[0].set_xlabel('slowEMA')
+    axes[0].set_ylabel('fastEMA')
+    axes[0].set_title(f'Net Sharpe Ratio (Momentum) - {quarter}')
+    plt.colorbar(im1, ax=axes[0])
+
+    # Plot mean reversion strategy heatmap
+    quarter_data_pivot_mr = quarter_data.pivot(index='fastEMA', columns='slowEMA', values='net_SR_mr')
+    im2 = axes[1].imshow(quarter_data_pivot_mr.values, cmap='coolwarm', aspect='auto')
+    axes[1].set_xticks(range(len(quarter_data_pivot_mr.columns)))
+    axes[1].set_yticks(range(len(quarter_data_pivot_mr.index)))
+    axes[1].set_xticklabels(quarter_data_pivot_mr.columns)
+    axes[1].set_yticklabels(quarter_data_pivot_mr.index)
+    axes[1].set_xlabel('slowEMA')
+    axes[1].set_ylabel('fastEMA')
+    axes[1].set_title(f'Net Sharpe Ratio (Mean Reversion) - {quarter}')
+    plt.colorbar(im2, ax=axes[1])
+
+    plt.tight_layout()
+    plt.show()
+```
+
+```{python}
+#| echo: false
+aggregated_stats_2MAs = (
+    summary_2MAs
+    .groupby(['fastEMA', 'slowEMA'], as_index=False)
+    .agg(
+        stat_mom_total=('stat_mom', 'sum'),
+        stat_mr_total=('stat_mr', 'sum'),
+        quarters_count=('quarter', 'nunique'),
+        net_SR_mom_mean=('net_SR_mom', 'mean'),
+        net_SR_mr_mean=('net_SR_mr', 'mean'),
+        net_PnL_mom_total=('net_PnL_mom', 'sum'),
+        net_PnL_mr_total=('net_PnL_mr', 'sum'),
+        av_daily_ntrans_mean=('av_daily_ntrans', 'mean')
+    )
+)
+aggregated_stats_2MAs['stat_mom_total'] = aggregated_stats_2MAs['stat_mom_total'].round(2)
+aggregated_stats_2MAs['stat_mr_total'] = aggregated_stats_2MAs['stat_mr_total'].round(2)
+
+from functions.plot_heatmap import plot_heatmap
+
+plot_heatmap(
+    df=aggregated_stats_2MAs,
+    value_col='stat_mom_total',
+    index_col='fastEMA',
+    columns_col='slowEMA',
+    title='Aggregated Stat Momentum over all quarters',
+)
+
+```
+
+### Volatility breakout strategy
+
+Lets now analyze the volatility breakout strategy for **SP**. Similar to the previous strategy, we have tested various combinations of signal and slow EMA parameters, along with different window lengths and multipliers for volatility calculation.
+
+```{python}
+#| echo: false
+#| output: false
+
+def mySR(x, scale):
+    return np.sqrt(scale) * np.nanmean(x) / np.nanstd(x)
+
+
+signalEMA_parameters = [20, 30, 45, 60, 75, 90]
+slowEMA_parameters = [90, 120, 150, 180, 240]
+volat_sd_parameters = [60, 90, 120]
+m_parameters = [1, 2, 3]
+
+# create an empty DataFrame to store summary for all quarters
+summary_all_breakout = pd.DataFrame()
+
+for quarter in quarters:
+
+    print(f'Processing quarter: {quarter}')
+
+    data1 = pd.read_parquet(f'data/data1_{quarter}.parquet')
+
+    # Lets set the datetime index
+    data1.set_index('datetime', inplace=True)
+
+    # assumption 1
+    # do not use in calculations the data from the first and last 10 minutes
+    # of the session (9:31-9:40 and 15:51-16:00) – put missing values there,
+    data1.loc[data1.between_time("9:31", "9:40").index] = np.nan
+    data1.loc[data1.between_time("15:51", "16:00").index] = np.nan
+
+    # assumption 2
+    # let's create an object named "pos_flat"
+    # = 1 if position has to be flat (= 0) - we do not trade
+    # = 0 otherwise
+
+    # let's fill it first with zeros
+    pos_flat = np.zeros(len(data1))
+
+    # do not trade within the first 25 minutes of stocks quotations (9:31-9:55),
+    pos_flat[data1.index.time <= pd.to_datetime("9:55").time()] = 1
+
+    # do not hold positions overnight (exit all positions 20 minutes
+    # before the session end, i.e. at 15:40),
+    pos_flat[data1.index.time >= pd.to_datetime("15:40").time()] = 1
+
+    # apply the strategy
+    ##############################################################
+    SP = data1['SP']
+
+    # create a dataframe to store results
+    # loop over different parameter combinations
+    for signalEMA in signalEMA_parameters:
+        print(f"signalEMA = {signalEMA}")
+        for slowEMA in slowEMA_parameters:
+            for volat_sd in volat_sd_parameters:
+                for m in m_parameters:
+
+                    # We calculate the appropriate EMA
+                    signalEMA_values = SP.ewm(span = signalEMA).mean().to_numpy().copy()
+                    slowEMA_values = SP.ewm(span = slowEMA).mean().to_numpy().copy()
+
+                    # We calculate the standard deviation
+                    volat_sd_values = SP.rolling(window = volat_sd).std().to_numpy().copy()
+
+                    # Insert NaNs wherever the original price is missing
+                    mask = data1['SP'].isna().to_numpy()
+                    signalEMA_values[mask] = np.nan
+                    slowEMA_values[mask] = np.nan
+                    volat_sd_values[mask] = np.nan
+
+                    # Calculate position for momentum strategy
+                    pos_mom = positionVB(signal=signalEMA_values,
+                                         lower=slowEMA_values - m * volat_sd_values,
+                                         upper=slowEMA_values + m * volat_sd_values,
+                                         pos_flat=pos_flat,
+                                         strategy="mom")
+
+                    pos_mr = -pos_mom
+
+                    # Calculate gross pnl
+                    pnl_gross_mom = np.where(np.isnan(pos_mom * SP.diff()), 0, pos_mom * SP.diff() * 50)
+                    pnl_gross_mr = np.where(np.isnan(pos_mr * SP.diff()), 0, pos_mr * SP.diff() * 50)
+                    # point value for SP
+
+                    # Calculate number of transactions
+                    ntrans = np.abs(np.diff(pos_mom, prepend = 0))
+
+                    # Calculate net pnl
+                    pnl_net_mom = pnl_gross_mom - ntrans * 12  # cost $10 per transaction on SP
+                    pnl_net_mr = pnl_gross_mr - ntrans * 12  # cost $10 per transaction on SP
+
+                    # Aggregate to daily data
+                    pnl_gross_mom = pd.Series(pnl_gross_mom)
+                    pnl_gross_mom.index = SP.index.time
+                    pnl_gross_mom_d = pnl_gross_mom.groupby(SP.index.date).sum()
+                    pnl_gross_mr = pd.Series(pnl_gross_mr)
+                    pnl_gross_mr.index = SP.index.time
+                    pnl_gross_mr_d = pnl_gross_mr.groupby(SP.index.date).sum()
+
+                    pnl_net_mom = pd.Series(pnl_net_mom)
+                    pnl_net_mom.index = SP.index.time
+                    pnl_net_mom_d = pnl_net_mom.groupby(SP.index.date).sum()
+                    pnl_net_mr = pd.Series(pnl_net_mr)
+                    pnl_net_mr.index = SP.index.time
+                    pnl_net_mr_d = pnl_net_mr.groupby(SP.index.date).sum()
+
+                    ntrans = pd.Series(ntrans)
+                    ntrans.index = SP.index.time
+                    ntrans_d = ntrans.groupby(SP.index.date).sum()
+
+                    # Calculate Sharpe Ratio and PnL
+                    gross_SR_mom = mySR(pnl_gross_mom_d, scale=252)
+                    net_SR_mom = mySR(pnl_net_mom_d, scale=252)
+                    gross_PnL_mom = pnl_gross_mom_d.sum()
+                    net_PnL_mom = pnl_net_mom_d.sum()
+                    gross_SR_mr = mySR(pnl_gross_mr_d, scale=252)
+                    net_SR_mr = mySR(pnl_net_mr_d, scale=252)
+                    gross_PnL_mr = pnl_gross_mr_d.sum()
+                    net_PnL_mr = pnl_net_mr_d.sum()
+
+                    av_daily_ntrans = ntrans_d.mean()
+
+                    stat_mom = (net_SR_mom - 0.5) * np.maximum(0, np.log(np.abs(net_PnL_mom/1000)))
+                    stat_mr = (net_SR_mr - 0.5) * np.maximum(0, np.log(np.abs(net_PnL_mr/1000)))
+                # Collect the necessary results into one object
+                    summary = pd.DataFrame({
+                    'signalEMA': signalEMA,
+                    'slowEMA': slowEMA,
+                    'volat_sd': volat_sd,
+                    'm': m,
+                    'quarter': quarter,
+                    'gross_SR_mom': gross_SR_mom,
+                    'net_SR_mom': net_SR_mom,
+                    'gross_PnL_mom': gross_PnL_mom,
+                    'net_PnL_mom': net_PnL_mom,
+                    'gross_SR_mr': gross_SR_mr,
+                    'net_SR_mr': net_SR_mr,
+                    'gross_PnL_mr': gross_PnL_mr,
+                    'net_PnL_mr': net_PnL_mr,
+                    'av_daily_ntrans': av_daily_ntrans,
+                    'stat_mom': stat_mom,
+                    'stat_mr': stat_mr
+                    }, index=[0])
+
+                # Append the results to the summary
+                    summary_all_breakout = pd.concat([summary_all_breakout, summary], ignore_index=True)
+
+summary_all_breakout["signalEMA_slowEMA"] = (
+    summary_all_breakout["signalEMA"].astype(int).astype(str).str.zfill(3) + "_" +
+    summary_all_breakout["slowEMA"].astype(int).astype(str).str.zfill(3)
+)
+
+summary_all_breakout["volat_sd_m"] = (
+    summary_all_breakout["volat_sd"].astype(int).astype(str).str.zfill(3) + "_" +
+    summary_all_breakout["m"].astype(str)
+)
+
+summary_all_breakout.head()
+
+```
+
+```{python}
+#| echo: false
+#| # Create separate heatmaps for each quarter
+for quarter in quarters:
+    quarter_data = summary_all_breakout[summary_all_breakout['quarter'] == quarter]
+
+    # Create figure with 2 subplots side by side
+    fig, axes = plt.subplots(1, 2, figsize=(20, 6))
+
+    # Plot momentum strategy heatmap
+    quarter_data_pivot_mom = quarter_data.pivot(index='signalEMA_slowEMA', columns='volat_sd_m', values='net_SR_mom')
+    im1 = axes[0].imshow(quarter_data_pivot_mom.values, cmap='coolwarm', aspect='auto')
+    axes[0].set_xticks(range(len(quarter_data_pivot_mom.columns)))
+    axes[0].set_yticks(range(len(quarter_data_pivot_mom.index)))
+    axes[0].set_xticklabels(quarter_data_pivot_mom.columns)
+    axes[0].set_yticklabels(quarter_data_pivot_mom.index)
+    axes[0].set_xlabel('volat_sd_m')
+    axes[0].set_ylabel('signalEMA_slowEMA')
+    axes[0].set_title(f'Net Sharpe Ratio (Momentum) - {quarter}')
+    plt.colorbar(im1, ax=axes[0])
+
+    # Plot mean reversion strategy heatmap
+    quarter_data_pivot_mr = quarter_data.pivot(index='signalEMA_slowEMA', columns='volat_sd_m', values='net_SR_mr')
+    im2 = axes[1].imshow(quarter_data_pivot_mr.values, cmap='coolwarm', aspect='auto')
+    axes[1].set_xticks(range(len(quarter_data_pivot_mr.columns)))
+    axes[1].set_yticks(range(len(quarter_data_pivot_mr.index)))
+    axes[1].set_xticklabels(quarter_data_pivot_mr.columns)
+    axes[1].set_yticklabels(quarter_data_pivot_mr.index)
+    axes[0].set_xlabel('volat_sd_m')
+    axes[0].set_ylabel('signalEMA_slowEMA')
+    axes[1].set_title(f'Net Sharpe Ratio (Mean Reversion) - {quarter}')
+    plt.colorbar(im2, ax=axes[1])
+
+    plt.tight_layout()
+    plt.show()
+```
+
+```{python}
+#| echo: false
+aggregated_stats_breakout = (
+    summary_all_breakout
+    .groupby(['signalEMA_slowEMA', 'volat_sd_m'], as_index=False)
+    .agg(
+        stat_mom_total=('stat_mom', 'sum'),
+        stat_mr_total=('stat_mr', 'sum'),
+        quarters_count=('quarter', 'nunique'),
+        net_SR_mom_mean=('net_SR_mom', 'mean'),
+        net_SR_mr_mean=('net_SR_mr', 'mean'),
+        net_PnL_mom_total=('net_PnL_mom', 'sum'),
+        net_PnL_mr_total=('net_PnL_mr', 'sum'),
+        av_daily_ntrans_mean=('av_daily_ntrans', 'mean')
+    )
+)
+
+aggregated_stats_breakout['stat_mom_total'] = aggregated_stats_breakout['stat_mom_total'].round(2)
+aggregated_stats_breakout['stat_mr_total'] = aggregated_stats_breakout['stat_mr_total'].round(2)
+
+plot_heatmap(
+    df=aggregated_stats_breakout,
+    value_col='stat_mom_total',
+    index_col='signalEMA_slowEMA',
+    columns_col='volat_sd_m',
+    title='Aggregated Stat Momentum over all quarters')
+
+
+```
+
+We can see that the volatility breakout strategy with momentum approach yields the best performance among all tested strategies. The combination of signal EMA of 30, slow EMA of 240, volatility window of 120, and multiplier of 1 provides the highest aggregated statistic across all quarters. The momentum strategy consistently outperforms the mean reversion approach, indicating that trend-following behavior is more effective for **SP** in this context.
+
+### Stop-loss condition
+To further enhance the robustness of the selected strategy, we have implemented a stop-loss condition. This condition limits the maximum daily loss to $500, helping to mitigate potential drawdowns during adverse market movements. The stop-loss is applied at the end of each trading day, ensuring that any losses exceeding this threshold are curtailed.
+
+```{python}
+#| echo: false
+#| 
+def mySR(x, scale):
+    return np.sqrt(scale) * np.nanmean(x) / np.nanstd(x)
+
+
+signalEMA_parameters = [20, 30, 45, 60, 75, 90]
+slowEMA_parameters = [90, 120, 150, 180, 240]
+volat_sd_parameters = [60, 90, 120]
+m_parameters = [1, 2, 3]
+
+# create an empty DataFrame to store summary for all quarters
+summary_all_breakout_stoploss = pd.DataFrame()
+
+for quarter in quarters:
+
+    
+
+    data1 = pd.read_parquet(f'data/data1_{quarter}.parquet')
+
+    # Lets set the datetime index
+    data1.set_index('datetime', inplace=True)
+
+    # assumption 1
+    # do not use in calculations the data from the first and last 10 minutes
+    # of the session (9:31-9:40 and 15:51-16:00) – put missing values there,
+    data1.loc[data1.between_time("9:31", "9:40").index] = np.nan
+    data1.loc[data1.between_time("15:51", "16:00").index] = np.nan
+
+    # assumption 2
+    # let's create an object named "pos_flat"
+    # = 1 if position has to be flat (= 0) - we do not trade
+    # = 0 otherwise
+
+    # let's fill it first with zeros
+    pos_flat = np.zeros(len(data1))
+
+    # do not trade within the first 25 minutes of stocks quotations (9:31-9:55),
+    pos_flat[data1.index.time <= pd.to_datetime("9:55").time()] = 1
+
+    # do not hold positions overnight (exit all positions 20 minutes
+    # before the session end, i.e. at 15:40),
+    pos_flat[data1.index.time >= pd.to_datetime("15:40").time()] = 1
+
+    # apply the strategy
+    ##############################################################
+    SP = data1['SP']
+
+    # create a dataframe to store results
+    # loop over different parameter combinations
+    for signalEMA in signalEMA_parameters:
+    
+        for slowEMA in slowEMA_parameters:
+            for volat_sd in volat_sd_parameters:
+                for m in m_parameters:
+                    # We calculate the appropriate EMA
+                    signalEMA_values = SP.ewm(span=signalEMA).mean().to_numpy().copy()
+                    slowEMA_values = SP.ewm(span=slowEMA).mean().to_numpy().copy()
+
+                    # We calculate the standard deviation
+                    volat_sd_values = SP.rolling(window=volat_sd).std().to_numpy().copy()
+
+                    # Insert NaNs wherever the original price is missing
+                    mask = SP.isna().to_numpy()
+                    signalEMA_values[mask] = np.nan
+                    slowEMA_values[mask] = np.nan
+                    volat_sd_values[mask] = np.nan
+
+                    # Calculate position for momentum strategy
+                    pos_mom = positionVB(signal=signalEMA_values,
+                                         lower=slowEMA_values - m * volat_sd_values,
+                                         upper=slowEMA_values + m * volat_sd_values,
+                                         pos_flat=pos_flat,
+                                         strategy="mom")
+
+                    pos_mr = -pos_mom
+
+                    # Calculate gross pnl
+                    pnl_gross_mom = np.where(np.isnan(pos_mom * SP.diff()), 0, pos_mom * SP.diff() * 50)
+                    pnl_gross_mr = np.where(np.isnan(pos_mr * SP.diff()), 0, pos_mr * SP.diff() * 50)
+                    # point value for SP
+
+                     # Add stop loss condition
+                    # Calculate cumulative PnL for each day and apply stop loss
+                    pnl_gross_mom_series = pd.Series(pnl_gross_mom, index=data1.index)
+                    pnl_gross_mr_series = pd.Series(pnl_gross_mr, index=data1.index)
+
+                    # Define stop loss threshold (e.g., -1000 per day)
+                    stop_loss_threshold = -500
+
+                    # Calculate cumulative daily PnL
+                    daily_cumul_pnl_mom = pnl_gross_mom_series.groupby(data1.index.date).cumsum()
+                    daily_cumul_pnl_mr = pnl_gross_mr_series.groupby(data1.index.date).cumsum()
+
+                    # Create stop loss mask (stop trading for rest of day if threshold hit)
+                    stop_loss_triggered_mom = (daily_cumul_pnl_mom <= stop_loss_threshold).groupby(data1.index.date).cummax()
+                    stop_loss_triggered_mr = (daily_cumul_pnl_mr <= stop_loss_threshold).groupby(data1.index.date).cummax()
+
+                    # Apply stop loss by setting position to 0 after trigger
+                    pos_mom_sl = pos_mom.copy()
+                    pos_mom_sl[stop_loss_triggered_mom] = 0
+                    pos_mr_sl = pos_mr.copy()
+                    pos_mr_sl[stop_loss_triggered_mr] = 0
+
+                    # Recalculate PnL with stop loss
+                    pnl_gross_mom = np.where(np.isnan(pos_mom_sl * data1['SP'].diff()), 0, pos_mom_sl * data1['SP'].diff() * 50)
+                    pnl_gross_mr = np.where(np.isnan(pos_mr_sl * data1['SP'].diff()), 0, pos_mr_sl * data1['SP'].diff() * 50)
+                    # Calculate number of transactions
+                    ntrans = np.abs(np.diff(pos_mom, prepend=0))
+
+                    # Calculate net pnl
+                    pnl_net_mom = pnl_gross_mom - ntrans * 12  # cost $10 per transaction on SP
+                    pnl_net_mr = pnl_gross_mr - ntrans * 12  # cost $10 per transaction on SP
+
+                    # Aggregate to daily data
+                    pnl_gross_mom = pd.Series(pnl_gross_mom)
+                    pnl_gross_mom.index = SP.index.time
+                    pnl_gross_mom_d = pnl_gross_mom.groupby(SP.index.date).sum()
+                    pnl_gross_mr = pd.Series(pnl_gross_mr)
+                    pnl_gross_mr.index = SP.index.time
+                    pnl_gross_mr_d = pnl_gross_mr.groupby(SP.index.date).sum()
+
+                    pnl_net_mom = pd.Series(pnl_net_mom)
+                    pnl_net_mom.index = SP.index.time
+                    pnl_net_mom_d = pnl_net_mom.groupby(SP.index.date).sum()
+                    pnl_net_mr = pd.Series(pnl_net_mr)
+                    pnl_net_mr.index = SP.index.time
+                    pnl_net_mr_d = pnl_net_mr.groupby(SP.index.date).sum()
+
+                    ntrans = pd.Series(ntrans)
+                    ntrans.index = SP.index.time
+                    ntrans_d = ntrans.groupby(SP.index.date).sum()
+
+                    # Calculate Sharpe Ratio and PnL
+                    gross_SR_mom = mySR(pnl_gross_mom_d, scale=252)
+                    net_SR_mom = mySR(pnl_net_mom_d, scale=252)
+                    gross_PnL_mom = pnl_gross_mom_d.sum()
+                    net_PnL_mom = pnl_net_mom_d.sum()
+                    gross_SR_mr = mySR(pnl_gross_mr_d, scale=252)
+                    net_SR_mr = mySR(pnl_net_mr_d, scale=252)
+                    gross_PnL_mr = pnl_gross_mr_d.sum()
+                    net_PnL_mr = pnl_net_mr_d.sum()
+
+                    av_daily_ntrans = ntrans_d.mean()
+
+                    stat_mom = (net_SR_mom - 0.5) * np.maximum(0, np.log(np.abs(net_PnL_mom / 1000)))
+                    stat_mr = (net_SR_mr - 0.5) * np.maximum(0, np.log(np.abs(net_PnL_mr / 1000)))
+                    # Collect the necessary results into one object
+                    summary = pd.DataFrame({
+                        'signalEMA': signalEMA,
+                        'slowEMA': slowEMA,
+                        'volat_sd': volat_sd,
+                        'm': m,
+                        'quarter': quarter,
+                        'gross_SR_mom': gross_SR_mom,
+                        'net_SR_mom': net_SR_mom,
+                        'gross_PnL_mom': gross_PnL_mom,
+                        'net_PnL_mom': net_PnL_mom,
+                        'gross_SR_mr': gross_SR_mr,
+                        'net_SR_mr': net_SR_mr,
+                        'gross_PnL_mr': gross_PnL_mr,
+                        'net_PnL_mr': net_PnL_mr,
+                        'av_daily_ntrans': av_daily_ntrans,
+                        'stat_mom': stat_mom,
+                        'stat_mr': stat_mr
+                    }, index=[0])
+
+                    # Append the results to the summary
+                    summary_all_breakout_stoploss = pd.concat([summary_all_breakout_stoploss, summary], ignore_index=True)
+
+summary_all_breakout_stoploss["signalEMA_slowEMA"] = (
+    summary_all_breakout_stoploss["signalEMA"].astype(int).astype(str).str.zfill(3) + "_" +
+    summary_all_breakout_stoploss["slowEMA"].astype(int).astype(str).str.zfill(3)
+)
+
+summary_all_breakout_stoploss["volat_sd_m"] = (
+    summary_all_breakout_stoploss["volat_sd"].astype(int).astype(str).str.zfill(3) + "_" +
+    summary_all_breakout_stoploss["m"].astype(str)
+)
+
+summary_all_breakout_stoploss.head()
+
+aggregated_stats_breakout_stoploss = (
+    summary_all_breakout_stoploss
+    .groupby(['signalEMA_slowEMA', 'volat_sd_m'], as_index=False)
+    .agg(
+        stat_mom_total=('stat_mom', 'sum'),
+        stat_mr_total=('stat_mr', 'sum'),
+        quarters_count=('quarter', 'nunique'),
+        net_SR_mom_mean=('net_SR_mom', 'mean'),
+        net_SR_mr_mean=('net_SR_mr', 'mean'),
+        net_PnL_mom_total=('net_PnL_mom', 'sum'),
+        net_PnL_mr_total=('net_PnL_mr', 'sum'),
+        av_daily_ntrans_mean=('av_daily_ntrans', 'mean')
+    )
+)
+
+aggregated_stats_breakout_stoploss['stat_mom_total'] = aggregated_stats_breakout_stoploss['stat_mom_total'].round(2)
+aggregated_stats_breakout_stoploss['stat_mr_total'] = aggregated_stats_breakout_stoploss['stat_mr_total'].round(2)
+
+
+plot_heatmap(
+    df=aggregated_stats_breakout_stoploss,
+    value_col='stat_mom_total',
+    index_col='signalEMA_slowEMA',
+    columns_col='volat_sd_m',
+    title='Aggregated Stat Momentum over all quarters')
+```
 ## Finally selected strategy for **group 1**
 
 As a result of the trial and error process, we have ended with volatility breakout model with momentum strategy for **SP** with signal and slow EMA of 30 and 240 respectively. The window length used in volatilities calculation was set to 120, while the multiplier for lower and upper threshold was set to 1. The stop-loss assumption was set as maximum of $500 loss per day.
@@ -689,7 +2505,1312 @@ Image(filename="data1_2025_Q4.png")
 
 Here we can see an early drawdown followed by a steady recovery and a strong finish, suggesting improving performance and better end-of-period stability.
 
+## In-Sample Analysis of **group 2**
 
+### Spread
+Based on the correlation and cointegration analysis conducted above, first we tried to create a strategy on the spread between **XAG** and **XAU**. However, the spread did not show strong mean-reverting properties, and attempts to build a mean-reversion strategy on this spread resulted in suboptimal performance. 
+
+### Spread based on prices
+
+```{python}
+#| echo: false
+# Combine all quarterly data into one file with quarter identification
+all_data_list = []
+
+for quarter in quarters:
+    data2 = pd.read_parquet(f'data/data2_{quarter}.parquet')
+    data2['datetime'] = pd.to_datetime(data2['datetime'])
+    data2.set_index('datetime', inplace=True)
+    
+    data_r = np.log(data2 / data2.shift(1)) * 10000
+    data_r.columns = ['r_' + col for col in data_r.columns]
+    
+    data_2_temp = pd.concat(
+        [data2[['AUD', 'CAD', 'XAU', 'XAG']],
+        data_r[['r_AUD', 'r_CAD', 'r_XAU', 'r_XAG']]],
+        axis=1
+    )
+    
+    data_2_plot = data_2_temp.copy()
+    data_2_plot['time'] = data_2_plot.index.astype(str)
+
+    # We reset the index to make 'time' a column
+    data_2_plot = data_2_plot.reset_index(drop = True)
+
+    # Let's set time as the X-axis and draw the graphs
+    data_2_plot.plot(
+        x = 'time',
+        subplots = True,
+        layout = (2, 4),
+        title = "Quotations of NQ and SP for" + f" {quarter}",
+        figsize = (12, 10)
+    )
+    plt.show()
+    
+    # Add quarter column
+    data_2_temp['quarter'] = quarter
+    
+    all_data_list.append(data_2_temp)
+
+# Combine all data
+all_data = pd.concat(all_data_list, axis=0)
+
+```
+
+```{python}
+#| echo: false
+# Calculate the ratio for each quarter
+ratio_results = []
+
+# Initialize list to store all av_ratio data with quarter identification
+all_av_ratios = []
+
+for quarter in quarters:
+    data2 = pd.read_parquet(f'data/data2_{quarter}.parquet')
+    data2['datetime'] = pd.to_datetime(data2['datetime'])
+    data2.set_index('datetime', inplace=True)
+    
+    data_r = np.log(data2 / data2.shift(1)) * 10000
+    data_r.columns = ['r_' + col for col in data_r.columns]
+    
+    data_2_temp = pd.concat(
+        [data2[['XAG', 'XAU']],
+        data_r[['r_XAG', 'r_XAU']]],
+        axis=1
+    )
+    
+    # Compute the ratio SP / NQ
+    ratio_temp = data_2_temp["XAU"] / data_2_temp["XAG"]
+    
+    # Compute daily averages
+    av_ratio_temp = ratio_temp.resample("D").mean().dropna()
+    
+    # Store results
+    ratio_results.append({
+        'Quarter': quarter,
+        'Mean_Ratio': av_ratio_temp.mean(),
+        'Std_Ratio': av_ratio_temp.std(),
+        'Min_Ratio': av_ratio_temp.min(),
+        'Max_Ratio': av_ratio_temp.max()
+    })
+    
+    # Store av_ratio with quarter identification
+    av_ratio_quarter = av_ratio_temp.to_frame(name='av_ratio')
+    av_ratio_quarter['quarter'] = quarter
+    av_ratio_quarter.index = av_ratio_quarter.index + pd.to_timedelta(np.where(av_ratio_quarter.index.day_name() == "Friday", "3D", "1D")) + pd.Timedelta("0m")
+    all_av_ratios.append(av_ratio_quarter)
+
+# Combine all av_ratios into one DataFrame
+all_av_ratios_df = pd.concat(all_av_ratios, axis=0)
+
+# Create summary dataframe
+ratio_summary = pd.DataFrame(ratio_results)
+
+# Create charts for each quarter
+fig, axes = plt.subplots(len(quarters), 1, figsize=(12, 4*len(quarters)))
+
+for idx, quarter in enumerate(quarters):
+    quarter_data = all_av_ratios_df[all_av_ratios_df['quarter'] == quarter]
+    
+    axes[idx].plot(quarter_data.index, quarter_data['av_ratio'].values)
+    axes[idx].set_title(f"Average Daily XAU/XAG Ratio - {quarter}")
+    axes[idx].set_xlabel("Date")
+    axes[idx].set_ylabel("Average Ratio")
+    axes[idx].grid(True, alpha=0.3)
+    axes[idx].tick_params(axis='x', rotation=45)
+
+plt.tight_layout()
+plt.show()
+
+```
+
+### Spread based on returns
+```{python}
+# Calculate the ratio for each quarter
+ratio_sds_results = []
+
+# Initialize list to store all av_ratio data with quarter identification
+all_sds_ratios = []
+
+for quarter in quarters:
+    data2 = pd.read_parquet(f'data/data2_{quarter}.parquet')
+    data2['datetime'] = pd.to_datetime(data2['datetime'])
+    data2.set_index('datetime', inplace=True)
+    
+    data_r = np.log(data2 / data2.shift(1)) * 10000
+    data_r.columns = ['r_' + col for col in data_r.columns]
+    
+    data_2_temp = pd.concat(
+        [data2[['XAG', 'XAU']],
+        data_r[['r_XAU', 'r_XAG']]],
+        axis=1
+    )
+    
+    # Compute the ratio SP / NQ
+    ratio_temp = data_2_temp.resample("D").apply(lambda x: x['r_XAU'].std() / x['r_XAG'].std())
+    
+    # Compute daily averages
+    sds_ratio_temp = ratio_temp.dropna()
+    
+    # Store results
+    ratio_results.append({
+        'Quarter': quarter,
+        'Mean_Ratio': sds_ratio_temp.mean(),
+        'Std_Ratio': sds_ratio_temp.std(),
+        'Min_Ratio': sds_ratio_temp.min(),
+        'Max_Ratio': sds_ratio_temp.max()
+    })
+    
+    # Store av_ratio with quarter identification
+    sds_ratio_quarter = sds_ratio_temp.to_frame(name='sds_ratio')
+    sds_ratio_quarter['quarter'] = quarter
+    sds_ratio_quarter.index = sds_ratio_quarter.index + pd.to_timedelta(np.where(sds_ratio_quarter.index.day_name() == "Friday", "3D", "1D")) + pd.Timedelta("0m")
+    all_sds_ratios.append(sds_ratio_quarter)
+
+# Combine all av_ratios into one DataFrame
+all_sds_ratios_df = pd.concat(all_sds_ratios, axis=0)
+
+
+# Create summary dataframe
+ratio_summary = pd.DataFrame(ratio_results)
+
+
+# Create charts for each quarter
+fig, axes = plt.subplots(len(quarters), 1, figsize=(12, 4*len(quarters)))
+
+for idx, quarter in enumerate(quarters):
+    quarter_data = all_sds_ratios_df[all_sds_ratios_df['quarter'] == quarter]
+    
+    axes[idx].plot(quarter_data.index, quarter_data['sds_ratio'].values)
+    axes[idx].set_title(f"Average Daily XAU/XAG Ratio - {quarter}")
+    axes[idx].set_xlabel("Date")
+    axes[idx].set_ylabel("Average Ratio")
+    axes[idx].grid(True, alpha=0.3)
+    axes[idx].tick_params(axis='x', rotation=45)
+
+plt.tight_layout()
+plt.show()
+
+```
+
+```{python}
+#| echo: false
+#| 
+all_data_2 = all_data.copy()
+all_data_2 = all_data_2.merge(all_sds_ratios_df[['sds_ratio']], left_index=True, right_index=True, how='left')
+all_data_2 = all_data_2.merge(all_av_ratios_df[['av_ratio']], left_index=True, right_index=True, how='left')
+all_data_2[['av_ratio', 'sds_ratio']] = all_data_2[['av_ratio', 'sds_ratio']].ffill()
+
+all_data_2['spread_avratio'] = all_data_2['XAU'] - all_data_2['XAG'] * all_data_2['av_ratio']
+all_data_2['spread_sdsratio'] = all_data_2['r_XAU'] - all_data_2['r_XAG'] * all_data_2['sds_ratio']
+```
+
+### Trading hours restriction
+Based on the analysis of trading hours impact on volatility and liquidity, we have decided to restrict trading activity to specific time windows. This approach aims to capitalize on periods of higher market activity while avoiding times of low liquidity that could lead to unfavorable trading conditions.
+
+```{python}
+pos_flat = np.zeros(len(all_data_2))
+breaks = (all_data_2.index.time >= pd.to_datetime("16:51").time()) & \
+          (all_data_2.index.time <= pd.to_datetime("18:10").time())
+
+pos_flat[breaks] = 1
+
+dweek_ = data2.index.dayofweek + 1
+time_ = data2.index.time
+pos_flat[((dweek_ == 5) & (time_ > pd.to_datetime('17:00').time())) |      # end of Friday
+        (dweek_ == 6) |                                                      # whole Saturday (just in case)
+        ((dweek_ == 7) & (time_ <= pd.to_datetime('18:00').time()))] = 1
+
+```
+
+### Two intersecting moving avarages
+
+First, similarily to group 1, we have tried to implement two intersecting moving averages strategy on spreads based on prices and returns. However, the results were not satisfactory, leading us to explore alternative strategies.
+
+```{python}
+# we check various parameter combinations in a loop
+
+def mySR(x, scale):
+    return np.sqrt(scale) * np.nanmean(x) / np.nanstd(x)
+
+fastEMA_parameters = [15, 20, 30, 45, 60, 75, 90]
+slowEMA_parameters = [90, 120, 150, 180, 240, 300, 360, 420]
+
+# create a dataframe to store results
+summary_all_2MAs = pd.DataFrame()
+
+# Loop over each quarter
+for quarter in quarters:
+    print(f"\nProcessing quarter: {quarter}")
+    
+    # Filter data for the current quarter
+    quarter_mask = all_data_2['quarter'] == quarter
+    quarter_data = all_data_2[quarter_mask].copy()
+    
+    # Loop over different parameter combinations
+    for fastEMA in fastEMA_parameters:
+        for slowEMA in slowEMA_parameters:
+                    
+                    # ensure that fastEMA is less than slowEMA
+                    if fastEMA >= slowEMA:
+                        continue
+
+                    print(f"  fastEMA = {fastEMA}, slowEMA = {slowEMA}")
+
+                    # We calculate the appropriate EMA
+                    fastEMA_values = quarter_data['spread_avratio'].ewm(span = fastEMA).mean()
+                    slowEMA_values = quarter_data['spread_avratio'].ewm(span = slowEMA).mean()
+
+                    # Insert NaNs wherever the original price is missing
+                    fastEMA_values[quarter_data['spread_avratio'].isna()] = np.nan
+                    slowEMA_values[quarter_data['spread_avratio'].isna()] = np.nan 
+
+                    # Calculate position for momentum strategy
+                    cond2b_mom_long = fastEMA_values.shift(1) > slowEMA_values.shift(1)
+                    
+                    # let's add filters that check for the presence of NaN values
+                    fastEMA_nonmiss = fastEMA_values.shift(1).notna()
+                    slowEMA_nonmiss = slowEMA_values.shift(1).notna()
+
+                    # Now we can add these conditions to our strategies
+                    # if any of the values is missing,
+                    # we cannot make a position decision
+
+                    pos_mom = np.where(fastEMA_nonmiss & slowEMA_nonmiss,
+                                       np.where(cond2b_mom_long, 1, -1),
+                                       np.nan)
+                    pos_mr = -pos_mom 
+
+                    # Set position to 0 where pos_flat is 1
+                    pos_flat_quarter = pos_flat[quarter_mask]
+                    pos_mr[pos_flat_quarter == 1] = 0
+                    
+                    # Calculate gross pnl
+                    pnl_gross_mr = pos_mr * (quarter_data['XAU'].diff() - quarter_data['XAG'].diff() * quarter_data['av_ratio'])
+                    # point value for E6
+
+                    # Calculate number of transactions
+                    ntrans = np.abs(np.diff(pos_mom, prepend = 0))
+
+                    # Calculate net pnl
+                    pnl_net_mr = pnl_gross_mr - ntrans * (15 + quarter_data['av_ratio']*10)   # cost $10 per transaction on E6
+                      
+                    # Aggregate to daily data
+                    pnl_gross_mr = pd.Series(pnl_gross_mr)
+                    pnl_gross_mr.index = quarter_data['spread_avratio'].index.time
+                    pnl_gross_mr_d = pnl_gross_mr.groupby(quarter_data['spread_avratio'].index.date).sum()
+
+                    pnl_net_mr = pd.Series(pnl_net_mr)
+                    pnl_net_mr.index = quarter_data['spread_avratio'].index.time
+                    pnl_net_mr_d = pnl_net_mr.groupby(quarter_data['spread_avratio'].index.date).sum()
+
+                    ntrans = pd.Series(ntrans)
+                    ntrans.index = quarter_data['spread_avratio'].index.time
+                    ntrans_d = ntrans.groupby(quarter_data['spread_avratio'].index.date).sum()
+
+                    # Calculate Sharpe Ratio and PnL
+                    gross_SR_mr = mySR(pnl_gross_mr_d, scale=252)
+                    net_SR_mr = mySR(pnl_net_mr_d, scale=252)
+                    gross_PnL_mr = pnl_gross_mr_d.sum()
+                    net_PnL_mr = pnl_net_mr_d.sum()
+
+                    av_daily_ntrans = ntrans_d.mean()
+
+                    # Collect necessary results into one object
+                    summary = pd.DataFrame({
+                        'fastEMA': fastEMA,
+                        'slowEMA': slowEMA,
+                        'quarter': quarter,
+                        'gross_SR_mr': gross_SR_mr,
+                        'net_SR_mr': net_SR_mr,
+                        'gross_PnL_mr': gross_PnL_mr,
+                        'net_PnL_mr': net_PnL_mr,
+                        'av_daily_ntrans': av_daily_ntrans
+                    }, index=[0])
+
+                    # Append results to the summary
+                    summary_all_2MAs = pd.concat([summary_all_2MAs, summary], ignore_index=True)
+```
+
+```{python}
+# Create separate heatmaps for each quarter
+for quarter in quarters:
+    quarter_data = summary_all_2MAs[summary_all_2MAs['quarter'] == quarter]
+    
+    # Create figure with 2 subplots side by side
+    fig, axes = plt.subplots(1, 2, figsize=(8, 3))
+    
+    # Plot momentum strategy heatmap
+    quarter_data_pivot_mom = quarter_data.pivot(index='fastEMA', columns='slowEMA', values='net_SR_mr')
+    im1 = axes[0].imshow(quarter_data_pivot_mom.values, cmap='coolwarm', aspect='auto')
+    axes[0].set_xticks(range(len(quarter_data_pivot_mom.columns)))
+    axes[0].set_yticks(range(len(quarter_data_pivot_mom.index)))
+    axes[0].set_xticklabels(quarter_data_pivot_mom.columns)
+    axes[0].set_yticklabels(quarter_data_pivot_mom.index)
+    axes[0].set_xlabel('slowEMA')
+    axes[0].set_ylabel('fastEMA')
+    axes[0].set_title(f'Net Sharpe Ratio (Mean Reversion) - {quarter}')
+    plt.colorbar(im1, ax=axes[0])
+    
+    # Plot mean reversion strategy heatmap
+    quarter_data_pivot_mr = quarter_data.pivot(index='fastEMA', columns='slowEMA', values='net_SR_mom')
+    im2 = axes[1].imshow(quarter_data_pivot_mr.values, cmap='coolwarm', aspect='auto')
+    axes[1].set_xticks(range(len(quarter_data_pivot_mr.columns)))
+    axes[1].set_yticks(range(len(quarter_data_pivot_mr.index)))
+    axes[1].set_xticklabels(quarter_data_pivot_mr.columns)
+    axes[1].set_yticklabels(quarter_data_pivot_mr.index)
+    axes[1].set_xlabel('slowEMA')
+    axes[1].set_ylabel('fastEMA')
+    axes[1].set_title(f'Net Sharpe Ratio (Momentum) - {quarter}')
+    plt.colorbar(im2, ax=axes[1])
+    
+    plt.tight_layout()
+    plt.show()
+```
+
+We can see that the results are not satisfactory - net Sharpe ratios are mostly negative. Let's look at the spread based on returns.
+
+```{python}
+# we check various parameter combinations in a loop
+
+def mySR(x, scale):
+    return np.sqrt(scale) * np.nanmean(x) / np.nanstd(x)
+
+fastEMA_parameters = [15, 20, 30, 45, 60, 75, 90]
+slowEMA_parameters = [90, 120, 150, 180, 240, 300, 360, 420]
+
+# create a dataframe to store results
+summary_all_2MAs = pd.DataFrame()
+
+# Loop over each quarter
+for quarter in quarters:
+    print(f"\nProcessing quarter: {quarter}")
+    
+    # Filter data for the current quarter
+    quarter_mask = all_data_2['quarter'] == quarter
+    quarter_data = all_data_2[quarter_mask].copy()
+    
+    # Loop over different parameter combinations
+    for fastEMA in fastEMA_parameters:
+        for slowEMA in slowEMA_parameters:
+                    
+                    # ensure that fastEMA is less than slowEMA
+                    if fastEMA >= slowEMA:
+                        continue
+
+                    print(f"  fastEMA = {fastEMA}, slowEMA = {slowEMA}")
+
+                    # We calculate the appropriate EMA
+                    fastEMA_values = quarter_data['spread_sdsratio'].ewm(span = fastEMA).mean()
+                    slowEMA_values = quarter_data['spread_sdsratio'].ewm(span = slowEMA).mean()
+
+                    # Insert NaNs wherever the original price is missing
+                    fastEMA_values[quarter_data['spread_sdsratio'].isna()] = np.nan
+                    slowEMA_values[quarter_data['spread_sdsratio'].isna()] = np.nan 
+
+                    # Calculate position for momentum strategy
+                    cond2b_mom_long = fastEMA_values.shift(1) > slowEMA_values.shift(1)
+                    
+                    # let's add filters that check for the presence of NaN values
+                    fastEMA_nonmiss = fastEMA_values.shift(1).notna()
+                    slowEMA_nonmiss = slowEMA_values.shift(1).notna()
+
+                    # Now we can add these conditions to our strategies
+                    # if any of the values is missing,
+                    # we cannot make a position decision
+
+                    pos_mom = np.where(fastEMA_nonmiss & slowEMA_nonmiss,
+                                       np.where(cond2b_mom_long, 1, -1),
+                                       np.nan)
+                    pos_mr = -pos_mom 
+
+                    # Set position to 0 where pos_flat is 1
+                    pos_flat_quarter = pos_flat[quarter_mask]
+                    pos_mr[pos_flat_quarter == 1] = 0
+                    
+                    # Calculate gross pnl
+                    pnl_gross_mr = pos_mr * (quarter_data['XAU'].diff() - quarter_data['XAG'].diff() * quarter_data['sds_ratio'])
+                    # point value for E6
+
+                    # Calculate number of transactions
+                    ntrans = np.abs(np.diff(pos_mom, prepend = 0))
+
+                    # Calculate net pnl
+                    pnl_net_mr = pnl_gross_mr - ntrans * (15 + quarter_data['sds_ratio']*10)   # cost $10 per transaction on E6
+                      
+                    # Aggregate to daily data
+                    pnl_gross_mr = pd.Series(pnl_gross_mr)
+                    pnl_gross_mr.index = quarter_data['spread_sdsratio'].index.time
+                    pnl_gross_mr_d = pnl_gross_mr.groupby(quarter_data['spread_sdsratio'].index.date).sum()
+
+                    pnl_net_mr = pd.Series(pnl_net_mr)
+                    pnl_net_mr.index = quarter_data['spread_sdsratio'].index.time
+                    pnl_net_mr_d = pnl_net_mr.groupby(quarter_data['spread_sdsratio'].index.date).sum()
+
+                    ntrans = pd.Series(ntrans)
+                    ntrans.index = quarter_data['spread_sdsratio'].index.time
+                    ntrans_d = ntrans.groupby(quarter_data['spread_sdsratio'].index.date).sum()
+
+                    # Calculate Sharpe Ratio and PnL
+                    gross_SR_mr = mySR(pnl_gross_mr_d, scale=252)
+                    net_SR_mr = mySR(pnl_net_mr_d, scale=252)
+                    gross_PnL_mr = pnl_gross_mr_d.sum()
+                    net_PnL_mr = pnl_net_mr_d.sum()
+
+                    av_daily_ntrans = ntrans_d.mean()
+
+                    # Collect necessary results into one object
+                    summary = pd.DataFrame({
+                        'fastEMA': fastEMA,
+                        'slowEMA': slowEMA,
+                        'quarter': quarter,
+                        'gross_SR_mr': gross_SR_mr,
+                        'net_SR_mr': net_SR_mr,
+                        'gross_PnL_mr': gross_PnL_mr,
+                        'net_PnL_mr': net_PnL_mr,
+                        'av_daily_ntrans': av_daily_ntrans
+                    }, index=[0])
+
+                    # Append results to the summary
+                    summary_all_2MAs = pd.concat([summary_all_2MAs, summary], ignore_index=True)
+```
+```{python}
+#| echo: false
+
+# Create separate heatmaps for each quarter
+for quarter in quarters:
+    quarter_data = summary_all_2MAs[summary_all_2MAs['quarter'] == quarter]
+    
+    # Create figure with 2 subplots side by side
+    fig, axes = plt.subplots(1, 2, figsize=(8, 3))
+    
+    # Plot momentum strategy heatmap
+    quarter_data_pivot_mom = quarter_data.pivot(index='fastEMA', columns='slowEMA', values='net_SR_mr')
+    im1 = axes[0].imshow(quarter_data_pivot_mom.values, cmap='coolwarm', aspect='auto')
+    axes[0].set_xticks(range(len(quarter_data_pivot_mom.columns)))
+    axes[0].set_yticks(range(len(quarter_data_pivot_mom.index)))
+    axes[0].set_xticklabels(quarter_data_pivot_mom.columns)
+    axes[0].set_yticklabels(quarter_data_pivot_mom.index)
+    axes[0].set_xlabel('slowEMA')
+    axes[0].set_ylabel('fastEMA')
+    axes[0].set_title(f'Net Sharpe Ratio (Mean Reversion) - {quarter}')
+    plt.colorbar(im1, ax=axes[0])
+    
+    # Plot mean reversion strategy heatmap
+    quarter_data_pivot_mr = quarter_data.pivot(index='fastEMA', columns='slowEMA', values='net_SR_mom')
+    im2 = axes[1].imshow(quarter_data_pivot_mr.values, cmap='coolwarm', aspect='auto')
+    axes[1].set_xticks(range(len(quarter_data_pivot_mr.columns)))
+    axes[1].set_yticks(range(len(quarter_data_pivot_mr.index)))
+    axes[1].set_xticklabels(quarter_data_pivot_mr.columns)
+    axes[1].set_yticklabels(quarter_data_pivot_mr.index)
+    axes[1].set_xlabel('slowEMA')
+    axes[1].set_ylabel('fastEMA')
+    axes[1].set_title(f'Net Sharpe Ratio (Momentum) - {quarter}')
+    plt.colorbar(im2, ax=axes[1])
+    
+    plt.tight_layout()
+    plt.show()
+```
+
+The results are still not satisfactory - net Sharpe ratios are mostly negative. Therefore, we have decided to try volatility breakout strategy with momentum.
+
+### Volatility breakout model
+
+Let's take a look at the results of volatility breakout strategy with momentum on both spreads.
+
+```{python}
+#| echo: false
+#| output: false
+# lets do a comparison within a loop for spread_avratio and spread_sdsratio
+
+def mySR(x, scale):
+    return np.sqrt(scale) * np.nanmean(x) / np.nanstd(x)
+
+volat_sd_parameters = [60, 90, 120, 150, 180]
+m_parameters = [0.5, 1, 1.5, 2, 2.5, 3, 3.5]
+
+# create a dataframe to store results
+summary_all_volatility = pd.DataFrame()
+
+# Loop through each quarter
+for quarter in quarters:
+    print(f"Processing quarter: {quarter}")
+    
+    # Filter data for the current quarter
+    quarter_mask = all_data_2["quarter"] == quarter
+    quarter_data = all_data_2[quarter_mask].copy()
+    
+    for volat_sd in volat_sd_parameters:
+        for m in m_parameters:
+            print(f"  volat_sd: {volat_sd}, m: {m}")
+
+            # calculate the elements of the strategy
+            XAU = quarter_data["XAU"]
+            XAG = quarter_data["XAG"]
+
+            # spread based on average ratio
+            signal_avratio = XAU - (quarter_data["av_ratio"] * XAG)
+            std_spread_avratio = signal_avratio.rolling(window=volat_sd).std()
+            upper_bound_avratio = m * std_spread_avratio
+            lower_bound_avratio = -m * std_spread_avratio
+            # position
+            pos_avratio = positionVB(signal = signal_avratio,
+                                    lower = lower_bound_avratio,
+                                    upper = upper_bound_avratio,
+                                    pos_flat = pos_flat[quarter_mask],
+                                    strategy = "mr")
+            # number of transactions
+            n_trans_avratio = np.abs(np.diff(pos_avratio, prepend = 0))
+            # convert to pd.Series and set the index
+            n_trans_avratio = pd.Series(n_trans_avratio, index=quarter_data.index)
+
+            # gross and net PnL
+            pnl_gross_avratio = pos_avratio * (quarter_data["XAU"].diff() - quarter_data["av_ratio"] * quarter_data["XAG"].diff())
+            pnl_net_avratio = pnl_gross_avratio - n_trans_avratio * (15 + quarter_data["av_ratio"] * 10)
+
+            # spread based on standard deviation ratio
+            signal_sdsratio = quarter_data["spread_sdsratio"]
+            std_spread_sdsratio = signal_sdsratio.rolling(window=volat_sd).std()
+            upper_bound_sdsratio = m * std_spread_sdsratio
+            lower_bound_sdsratio = -m * std_spread_sdsratio
+            # position
+            pos_sdsratio = positionVB(signal = signal_sdsratio,
+                                    lower = lower_bound_sdsratio,
+                                    upper = upper_bound_sdsratio,
+                                    pos_flat = pos_flat[quarter_mask],
+                                    strategy = "mr")
+
+            # number of transactions
+            n_trans_sdsratio = np.abs(np.diff(pos_sdsratio, prepend = 0))
+            # convert to pd.Series and set the index
+            n_trans_sdsratio = pd.Series(n_trans_sdsratio, index=quarter_data.index)
+
+            # !!!!! signal is based on returns, but PnL on prices !!!!
+            pnl_gross_sdsratio = pos_sdsratio * (quarter_data["XAU"].diff() - quarter_data["sds_ratio"] * quarter_data["XAG"].diff())
+            pnl_net_sdsratio = pnl_gross_sdsratio - n_trans_sdsratio * (15 + quarter_data["sds_ratio"] * 10)
+
+            # aggregate to daily
+            pnl_gross_avratio_daily = pnl_gross_avratio.resample("D").sum().dropna()
+            pnl_gross_sdsratio_daily = pnl_gross_sdsratio.resample("D").sum().dropna()
+            pnl_net_avratio_daily = pnl_net_avratio.resample("D").sum().dropna()
+            pnl_net_sdsratio_daily = pnl_net_sdsratio.resample("D").sum().dropna()
+            n_trans_avratio_daily = n_trans_avratio.resample("D").sum().dropna()
+            n_trans_sdsratio_daily = n_trans_sdsratio.resample("D").sum().dropna()
+
+            # calculate summary measures
+            gross_SR_avratio = mySR(pnl_gross_avratio_daily, scale = 252)
+            net_SR_avratio = mySR(pnl_net_avratio_daily, scale = 252)
+            gross_PnL_avratio = pnl_gross_avratio_daily.sum()
+            net_PnL_avratio = pnl_net_avratio_daily.sum()
+            av_daily_ntrans_avratio = n_trans_avratio_daily.mean()
+
+            gross_SR_sdsratio = mySR(pnl_gross_sdsratio_daily, scale = 252)
+            net_SR_sdsratio = mySR(pnl_net_sdsratio_daily, scale = 252)
+            gross_PnL_sdsratio = pnl_gross_sdsratio_daily.sum()
+            net_PnL_sdsratio = pnl_net_sdsratio_daily.sum()
+            av_daily_ntrans_sdsratio = n_trans_sdsratio_daily.mean()
+
+            # Collect the necessary results into one object
+            summary = pd.DataFrame({
+                    'volat_sd': [volat_sd],
+                    'm': [m],
+                    'quarter': [quarter],
+                    'gross_SR_avratio': [gross_SR_avratio],
+                    'net_SR_avratio': [net_SR_avratio],
+                    'gross_PnL_avratio': [gross_PnL_avratio],
+                    'net_PnL_avratio': [net_PnL_avratio],
+                    'av_daily_ntrans_avratio': [av_daily_ntrans_avratio],
+                    'gross_SR_sdsratio': [gross_SR_sdsratio],
+                    'net_SR_sdsratio': [net_SR_sdsratio],
+                    'gross_PnL_sdsratio': [gross_PnL_sdsratio],
+                    'net_PnL_sdsratio': [net_PnL_sdsratio],
+                    'av_daily_ntrans_sdsratio': [av_daily_ntrans_sdsratio]
+                    }, index=[0])
+
+            # Append the results to the summary
+            summary_all_volatility = pd.concat([summary_all_volatility,
+                                            summary], ignore_index=True)
+```
+
+```{python}
+#| echo: false
+
+# Create separate heatmaps for each quarter
+for quarter in quarters:
+    quarter_data = summary_all_volatility[summary_all_volatility['quarter'] == quarter]
+    
+    # Create figure with 2 subplots side by side
+    fig, axes = plt.subplots(1, 2, figsize=(8, 3))
+    
+    # Plot momentum strategy heatmap
+    quarter_data_pivot_mom = quarter_data.pivot(index='volat_sd', columns='m', values='net_SR_avratio')
+    im1 = axes[0].imshow(quarter_data_pivot_mom.values, cmap='coolwarm', aspect='auto')
+    axes[0].set_xticks(range(len(quarter_data_pivot_mom.columns)))
+    axes[0].set_yticks(range(len(quarter_data_pivot_mom.index)))
+    axes[0].set_xticklabels(quarter_data_pivot_mom.columns)
+    axes[0].set_yticklabels(quarter_data_pivot_mom.index)
+    axes[0].set_xlabel('m')
+    axes[0].set_ylabel('volat_sd')
+    axes[0].set_title(f'Net SR (av_ratio) - {quarter}')
+    plt.colorbar(im1, ax=axes[0])
+    
+    # Plot mean reversion strategy heatmap
+    quarter_data_pivot_mr = quarter_data.pivot(index='volat_sd', columns='m', values='net_PnL_avratio')
+    im2 = axes[1].imshow(quarter_data_pivot_mr.values, cmap='coolwarm', aspect='auto')
+    axes[1].set_xticks(range(len(quarter_data_pivot_mr.columns)))
+    axes[1].set_yticks(range(len(quarter_data_pivot_mr.index)))
+    axes[1].set_xticklabels(quarter_data_pivot_mr.columns)
+    axes[1].set_yticklabels(quarter_data_pivot_mr.index)
+    axes[0].set_xlabel('m')
+    axes[0].set_ylabel('volat_sd')
+    axes[1].set_title(f'Net PnL (av_ratio) - {quarter}')
+    plt.colorbar(im2, ax=axes[1])
+    
+    plt.tight_layout()
+    plt.show()
+```
+
+```{python}
+#| echo: false
+
+# Create separate heatmaps for each quarter
+for quarter in quarters:
+    quarter_data = summary_all_volatility[summary_all_volatility['quarter'] == quarter]
+    
+    # Create figure with 2 subplots side by side
+    fig, axes = plt.subplots(1, 2, figsize=(8, 3))
+    
+    # Plot momentum strategy heatmap
+    quarter_data_pivot_mom = quarter_data.pivot(index='volat_sd', columns='m', values='net_SR_sdsratio')
+    im1 = axes[0].imshow(quarter_data_pivot_mom.values, cmap='coolwarm', aspect='auto')
+    axes[0].set_xticks(range(len(quarter_data_pivot_mom.columns)))
+    axes[0].set_yticks(range(len(quarter_data_pivot_mom.index)))
+    axes[0].set_xticklabels(quarter_data_pivot_mom.columns)
+    axes[0].set_yticklabels(quarter_data_pivot_mom.index)
+    axes[0].set_xlabel('m')
+    axes[0].set_ylabel('volat_sd')
+    axes[0].set_title(f'Net SR (av_ratio) - {quarter}')
+    plt.colorbar(im1, ax=axes[0])
+    
+    # Plot mean reversion strategy heatmap
+    quarter_data_pivot_mr = quarter_data.pivot(index='volat_sd', columns='m', values='net_PnL_sdsratio')
+    im2 = axes[1].imshow(quarter_data_pivot_mr.values, cmap='coolwarm', aspect='auto')
+    axes[1].set_xticks(range(len(quarter_data_pivot_mr.columns)))
+    axes[1].set_yticks(range(len(quarter_data_pivot_mr.index)))
+    axes[1].set_xticklabels(quarter_data_pivot_mr.columns)
+    axes[1].set_yticklabels(quarter_data_pivot_mr.index)
+    axes[0].set_xlabel('m')
+    axes[0].set_ylabel('volat_sd')
+    axes[1].set_title(f'Net PnL (sds_ratio) - {quarter}')
+    plt.colorbar(im2, ax=axes[1])
+    
+    plt.tight_layout()
+    plt.show()
+```
+
+We can see that the volatility breakout model on spreads does not deliver satisfactory results either. Ofline, we also tried additional filtering, similarily to th eone conducted for group 1, but it did not improve performance. Therefore, we have decided to trade **XAG** alone.
+
+## Single asset strategies
+
+After analyzing various strategies on spreads, we have decided to focus on trading **XAG** alone. We conducted a trial and error process with different parameter combinations, to find the most effective strategy.
+
+### Two intersecting moving avarages on XAG
+
+First , we have tried two intersecting moving averages strategy on **XAG** prices. However, the results were not satisfactory, leading us to explore alternative strategies.
+
+```{python}
+def mySR(x, scale):
+    return np.sqrt(scale) * np.nanmean(x) / np.nanstd(x)
+
+fastEMA_parameters = [15, 20, 30, 45, 60, 75, 90]
+slowEMA_parameters = [90, 120, 150, 180, 240, 300, 360, 420]
+
+# create an empty DataFrame to store summary for all quarters
+summary_2MAs = pd.DataFrame()
+
+for quarter in quarters:
+
+    print(f'Processing quarter: {quarter}')
+
+    data2 = pd.read_parquet(f'data/data2_{quarter}.parquet')
+
+    # Lets set the datetime index
+    data2.set_index('datetime', inplace = True)
+
+    pos_flat = np.zeros(len(data2))
+    breaks = (data2.index.time >= pd.to_datetime("16:41").time()) & \
+          (data2.index.time <= pd.to_datetime("18:10").time())
+
+    pos_flat[breaks] = 1
+
+    dweek_ = data2.index.dayofweek + 1
+    time_ = data2.index.time
+    pos_flat[((dweek_ == 5) & (time_ > pd.to_datetime('17:00').time())) |      # end of Friday
+          (dweek_ == 6) |                                                      # whole Saturday (just in case)
+          ((dweek_ == 7) & (time_ <= pd.to_datetime('18:00').time()))] = 1
+
+    # apply the strategy
+    ##############################################################
+    XAG = data2['XAG']
+
+    for fastEMA in fastEMA_parameters:
+        for slowEMA in slowEMA_parameters:
+
+                    # ensure that fastEMA is less than slowEMA
+                    if fastEMA >= slowEMA:
+                        continue
+
+                    print(f"  fastEMA = {fastEMA}, slowEMA = {slowEMA}")
+
+                    # We calculate the appropriate EMA
+                    fastEMA_values = XAG.ewm(span = fastEMA).mean()
+                    slowEMA_values = XAG.ewm(span= slowEMA).mean()
+
+                    # Insert NaNs wherever the original price is missing
+                    fastEMA_values[data2['XAG'].isna()] = np.nan
+                    slowEMA_values[data2['XAG'].isna()] = np.nan
+
+                    # Calculate position for momentum strategy
+                    cond2b_mom_long = fastEMA_values.shift(1) > slowEMA_values.shift(1)
+
+                    # let's add filters that check for the presence of NaN values
+                    fastEMA_nonmiss = fastEMA_values.shift(1).notna()
+                    slowEMA_nonmiss = slowEMA_values.shift(1).notna()
+
+                    # Now we can add these conditions to our strategies
+                    # if any of the values is missing,
+                    # we cannot make a position decision
+
+                    pos_mom = np.where(fastEMA_nonmiss & slowEMA_nonmiss,
+                                       np.where(cond2b_mom_long, 1, -1),
+                                       np.nan)
+                    pos_mr = -pos_mom
+
+                    # Set position to 0 where pos_flat is 1
+                    pos_mom[pos_flat == 1] = 0
+                    pos_mr[pos_flat == 1] = 0
+
+                    # Calculate gross pnl
+                    pnl_gross_mom = np.where(np.isnan(pos_mom * data2["XAG"].diff()), 0, pos_mom * data2["XAG"].diff() * 5000)
+                    pnl_gross_mr = np.where(np.isnan(pos_mr * data2["XAG"].diff()), 0, pos_mr * data2["XAG"].diff() * 5000)
+                    # point value for XAG
+
+                    # Calculate number of transactions
+                    ntrans = np.abs(np.diff(pos_mom, prepend = 0))
+
+                    # Calculate net pnl
+                    pnl_net_mom = pnl_gross_mom - ntrans * 10 # cost $12 per transaction
+                    pnl_net_mr = pnl_gross_mr - ntrans * 10   # cost $12 per transaction
+
+                    # Aggregate to daily data
+                    pnl_gross_mom = pd.Series(pnl_gross_mom)
+                    pnl_gross_mom.index = data2['XAG'].index.time
+                    pnl_gross_mom_d = pnl_gross_mom.groupby(data2['XAG'].index.date).sum()
+                    pnl_gross_mr = pd.Series(pnl_gross_mr)
+                    pnl_gross_mr.index = data2['XAG'].index.time
+                    pnl_gross_mr_d = pnl_gross_mr.groupby(data2['XAG'].index.date).sum()
+
+                    pnl_net_mom = pd.Series(pnl_net_mom)
+                    pnl_net_mom.index = data2['XAG'].index.time
+                    pnl_net_mom_d = pnl_net_mom.groupby(data2['XAG'].index.date).sum()
+                    pnl_net_mr = pd.Series(pnl_net_mr)
+                    pnl_net_mr.index = data2['XAG'].index.time
+                    pnl_net_mr_d = pnl_net_mr.groupby(data2['XAG'].index.date).sum()
+
+                    ntrans = pd.Series(ntrans)
+                    ntrans.index = data2['XAG'].index.time
+                    ntrans_d = ntrans.groupby(data2['XAG'].index.date).sum()
+
+                    # Calculate Sharpe Ratio and PnL
+                    gross_SR_mom = mySR(pnl_gross_mom_d, scale=252)
+                    net_SR_mom = mySR(pnl_net_mom_d, scale=252)
+                    gross_PnL_mom = pnl_gross_mom_d.sum()
+                    net_PnL_mom = pnl_net_mom_d.sum()
+                    gross_SR_mr = mySR(pnl_gross_mr_d, scale=252)
+                    net_SR_mr = mySR(pnl_net_mr_d, scale=252)
+                    gross_PnL_mr = pnl_gross_mr_d.sum()
+                    net_PnL_mr = pnl_net_mr_d.sum()
+
+                    av_daily_ntrans = ntrans_d.mean()
+                    stat_mom = (net_SR_mom - 0.5) * np.maximum(0, np.log(np.abs(net_PnL_mom/1000)))
+                    stat_mr = (net_SR_mr - 0.5) * np.maximum(0, np.log(np.abs(net_PnL_mr/1000)))
+
+                    # Collect necessary results into one object
+                    summary = pd.DataFrame({
+                        'fastEMA': fastEMA,
+                        'slowEMA': slowEMA,
+                        'quarter': quarter,
+                        'gross_SR_mom': gross_SR_mom,
+                        'net_SR_mom': net_SR_mom,
+                        'gross_PnL_mom': gross_PnL_mom,
+                        'net_PnL_mom': net_PnL_mom,
+                        'gross_SR_mr': gross_SR_mr,
+                        'net_SR_mr': net_SR_mr,
+                        'gross_PnL_mr': gross_PnL_mr,
+                        'net_PnL_mr': net_PnL_mr,
+                        'av_daily_ntrans': av_daily_ntrans,
+                        'stat_mom': stat_mom,
+                        'stat_mr': stat_mr
+                    }, index=[0])
+
+                    # Append results to the summary
+                    summary_2MAs = pd.concat([summary_2MAs, summary], ignore_index=True)
+
+```
+
+```{python}
+aggregated_stats_2MAs = (
+    summary_2MAs
+    .groupby(['fastEMA', 'slowEMA'], as_index=False)
+    .agg(
+        stat_mom_total=('stat_mom', 'sum'),
+        stat_mr_total=('stat_mr', 'sum'),
+        quarters_count=('quarter', 'nunique'),
+        net_SR_mom_mean=('net_SR_mom', 'mean'),
+        net_SR_mr_mean=('net_SR_mr', 'mean'),
+        net_PnL_mom_total=('net_PnL_mom', 'sum'),
+        net_PnL_mr_total=('net_PnL_mr', 'sum'),
+        av_daily_ntrans_mean=('av_daily_ntrans', 'mean')
+    )
+)
+aggregated_stats_2MAs['stat_mom_total'] = aggregated_stats_2MAs['stat_mom_total'].round(2)
+aggregated_stats_2MAs['stat_mr_total'] = aggregated_stats_2MAs['stat_mr_total'].round(2)
+
+plot_heatmap(
+    df=aggregated_stats_2MAs,
+    value_col='stat_mom_total',
+    index_col='fastEMA',
+    columns_col='slowEMA',
+    title='Aggregated Stat Momentum over all quarters',
+)
+```
+
+We can see that the results are better than for spreads. Let's look at the volatility breakout model on **XAG**, to see if we can improve the results even further.
+
+## Volatility breakout model on XAG
+
+```{python}
+def mySR(x, scale):
+    return np.sqrt(scale) * np.nanmean(x) / np.nanstd(x)
+
+
+signalEMA_parameters = [20, 30, 45, 60, 75, 90]
+slowEMA_parameters = [90, 120, 150, 180, 240]
+volat_sd_parameters = [60, 90, 120]
+m_parameters = [1, 2, 3]
+
+# create an empty DataFrame to store summary for all quarters
+summary_all_breakout = pd.DataFrame()
+
+for quarter in quarters:
+
+    print(f'Processing quarter: {quarter}')
+
+    data2 = pd.read_parquet(f'data/data2_{quarter}.parquet')
+
+    # Lets set the datetime index
+    data2.set_index('datetime', inplace=True)
+
+     # assumption
+    # let's create an object named "pos_flat"
+    # = 1 if position has to be flat (= 0) - we do not trade
+    # = 0 otherwise
+
+    # let's fill it first with zeros
+    pos_flat = np.zeros(len(data2))
+
+    #
+    breaks = (data2.index.time >= pd.to_datetime("16:41").time()) & \
+          (data2.index.time <= pd.to_datetime("18:10").time())
+
+    pos_flat[breaks] = 1
+
+    dweek_ = data2.index.dayofweek + 1
+    time_ = data2.index.time
+    pos_flat[((dweek_ == 5) & (time_ > pd.to_datetime('17:00').time())) |      # end of Friday
+          (dweek_ == 6) |                                                      # whole Saturday (just in case)
+          ((dweek_ == 7) & (time_ <= pd.to_datetime('18:00').time()))] = 1     # beginning of Sunday
+
+
+    # apply the strategy
+    ##############################################################
+    XAG = data2['XAG']
+
+    # create a dataframe to store results
+    # loop over different parameter combinations
+    for signalEMA in signalEMA_parameters:
+        print(f"signalEMA = {signalEMA}")
+        for slowEMA in slowEMA_parameters:
+            for volat_sd in volat_sd_parameters:
+                for m in m_parameters:
+
+                    # We calculate the appropriate EMA
+                    signalEMA_values = XAG.ewm(span = signalEMA).mean().to_numpy()
+                    slowEMA_values = XAG.ewm(span = slowEMA).mean().to_numpy()
+
+                    # We calculate the standard deviation
+                    volat_sd_values = XAG.rolling(window = volat_sd).std().to_numpy()
+
+                    # Insert NaNs wherever the original price is missing
+                    signalEMA_values[XAG.isna()] = np.nan
+                    slowEMA_values[XAG.isna()] = np.nan
+                    volat_sd_values[XAG.isna()] = np.nan
+
+                    # Calculate position for momentum strategy
+                    pos_mom = positionVB(signal = signalEMA_values,
+                                     lower = slowEMA_values - m * volat_sd_values,
+                                     upper = slowEMA_values + m * volat_sd_values,
+                                     pos_flat = pos_flat,
+                                     strategy = "mom")
+
+                    pos_mr = -pos_mom
+
+                    # Calculate gross pnl
+                    pnl_gross_mom = np.where(np.isnan(pos_mom * XAG.diff()), 0, pos_mom * XAG.diff() * 50)
+                    pnl_gross_mr = np.where(np.isnan(pos_mr * XAG.diff()), 0, pos_mr * XAG.diff() * 50)
+                    # point value for XAG
+
+                    # Calculate number of transactions
+                    ntrans = np.abs(np.diff(pos_mom, prepend = 0))
+
+                    # Calculate net pnl
+                    pnl_net_mom = pnl_gross_mom - ntrans * 12  # cost $10 per transaction on XAG
+                    pnl_net_mr = pnl_gross_mr - ntrans * 12  # cost $10 per transaction on XAG
+
+                    # Aggregate to daily data
+                    pnl_gross_mom = pd.Series(pnl_gross_mom)
+                    pnl_gross_mom.index = XAG.index.time
+                    pnl_gross_mom_d = pnl_gross_mom.groupby(XAG.index.date).sum()
+                    pnl_gross_mr = pd.Series(pnl_gross_mr)
+                    pnl_gross_mr.index = XAG.index.time
+                    pnl_gross_mr_d = pnl_gross_mr.groupby(XAG.index.date).sum()
+
+                    pnl_net_mom = pd.Series(pnl_net_mom)
+                    pnl_net_mom.index = XAG.index.time
+                    pnl_net_mom_d = pnl_net_mom.groupby(XAG.index.date).sum()
+                    pnl_net_mr = pd.Series(pnl_net_mr)
+                    pnl_net_mr.index = XAG.index.time
+                    pnl_net_mr_d = pnl_net_mr.groupby(XAG.index.date).sum()
+
+                    ntrans = pd.Series(ntrans)
+                    ntrans.index = XAG.index.time
+                    ntrans_d = ntrans.groupby(XAG.index.date).sum()
+
+                    # Calculate Sharpe Ratio and PnL
+                    gross_SR_mom = mySR(pnl_gross_mom_d, scale=252)
+                    net_SR_mom = mySR(pnl_net_mom_d, scale=252)
+                    gross_PnL_mom = pnl_gross_mom_d.sum()
+                    net_PnL_mom = pnl_net_mom_d.sum()
+                    gross_SR_mr = mySR(pnl_gross_mr_d, scale=252)
+                    net_SR_mr = mySR(pnl_net_mr_d, scale=252)
+                    gross_PnL_mr = pnl_gross_mr_d.sum()
+                    net_PnL_mr = pnl_net_mr_d.sum()
+
+                    av_daily_ntrans = ntrans_d.mean()
+
+                    stat_mom = (net_SR_mom - 0.5) * np.maximum(0, np.log(np.abs(net_PnL_mom/1000)))
+                    stat_mr = (net_SR_mr - 0.5) * np.maximum(0, np.log(np.abs(net_PnL_mr/1000)))
+                # Collect the necessary results into one object
+                    summary = pd.DataFrame({
+                    'signalEMA': signalEMA,
+                    'slowEMA': slowEMA,
+                    'volat_sd': volat_sd,
+                    'm': m,
+                    'quarter': quarter,
+                    'gross_SR_mom': gross_SR_mom,
+                    'net_SR_mom': net_SR_mom,
+                    'gross_PnL_mom': gross_PnL_mom,
+                    'net_PnL_mom': net_PnL_mom,
+                    'gross_SR_mr': gross_SR_mr,
+                    'net_SR_mr': net_SR_mr,
+                    'gross_PnL_mr': gross_PnL_mr,
+                    'net_PnL_mr': net_PnL_mr,
+                    'av_daily_ntrans': av_daily_ntrans,
+                    'stat_mom': stat_mom,
+                    'stat_mr': stat_mr
+                    }, index=[0])
+
+                # Append the results to the summary
+                    summary_all_breakout = pd.concat([summary_all_breakout, summary], ignore_index=True)
+
+summary_all_breakout["signalEMA_slowEMA"] = (
+    summary_all_breakout["signalEMA"].astype(int).astype(str).str.zfill(3) + "_" +
+    summary_all_breakout["slowEMA"].astype(int).astype(str).str.zfill(3)
+)
+
+summary_all_breakout["volat_sd_m"] = (
+    summary_all_breakout["volat_sd"].astype(int).astype(str).str.zfill(3) + "_" +
+    summary_all_breakout["m"].astype(str)
+)
+
+summary_all_breakout.head()
+```
+
+```{python}
+#| echo: false
+#| 
+aggregated_stats_breakout = (
+    summary_all_breakout
+    .groupby(['signalEMA_slowEMA', 'volat_sd_m'], as_index=False)
+    .agg(
+        stat_mom_total=('stat_mom', 'sum'),
+        stat_mr_total=('stat_mr', 'sum'),
+        quarters_count=('quarter', 'nunique'),
+        net_SR_mom_mean=('net_SR_mom', 'mean'),
+        net_SR_mr_mean=('net_SR_mr', 'mean'),
+        net_PnL_mom_total=('net_PnL_mom', 'sum'),
+        net_PnL_mr_total=('net_PnL_mr', 'sum'),
+        av_daily_ntrans_mean=('av_daily_ntrans', 'mean')
+    )
+)
+
+aggregated_stats_breakout['stat_mom_total'] = aggregated_stats_breakout['stat_mom_total'].round(2)
+aggregated_stats_breakout['stat_mr_total'] = aggregated_stats_breakout['stat_mr_total'].round(2)
+
+plot_heatmap(
+    df=aggregated_stats_breakout,
+    value_col='stat_mom_total',
+    index_col='signalEMA_slowEMA',
+    columns_col='volat_sd_m',
+    title='Aggregated Stat Momentum over all quarters')
+
+plot_heatmap(
+    df=aggregated_stats_breakout,
+    value_col='stat_mr_total',
+    index_col='signalEMA_slowEMA',
+    columns_col='volat_sd_m',
+    title='Aggregated Stat Mean Reversing over all quarters')
+```
+
+The results are better than for two moving averages strategy. Therefore, we have decided to proceed with volatility breakout model with momentum strategy on **XAG**. However, seeing how much stop-loss assumption can impact the results, we have decided to include it in our final strategy implementation.
+
+### Stop-loss implementation
+
+To implement stop-loss, we have decided to limit maximum daily loss to $1000. If the cumulative loss during the day reaches this threshold, we close all positions and do not open new ones for the rest of the day.
+
+```{python}
+def mySR(x, scale):
+    return np.sqrt(scale) * np.nanmean(x) / np.nanstd(x)
+
+
+signalEMA_parameters = [20, 30, 45, 60, 75, 90]
+slowEMA_parameters = [90, 120, 150, 180, 240]
+volat_sd_parameters = [60, 90, 120]
+m_parameters = [1, 2, 3]
+
+# create an empty DataFrame to store summary for all quarters
+summary_all_breakout_stoploss = pd.DataFrame()
+
+for quarter in quarters:
+
+    print(f'Processing quarter: {quarter}')
+
+    data2 = pd.read_parquet(f'data/data2_{quarter}.parquet')
+
+    # Lets set the datetime index
+    data2.set_index('datetime', inplace=True)
+
+    # assumption
+    # let's create an object named "pos_flat"
+    # = 1 if position has to be flat (= 0) - we do not trade
+    # = 0 otherwise
+
+    # let's fill it first with zeros
+    pos_flat = np.zeros(len(data2))
+
+    #
+    breaks = (data2.index.time >= pd.to_datetime("16:41").time()) & \
+          (data2.index.time <= pd.to_datetime("18:10").time())
+
+    pos_flat[breaks] = 1
+
+    dweek_ = data2.index.dayofweek + 1
+    time_ = data2.index.time
+    pos_flat[((dweek_ == 5) & (time_ > pd.to_datetime('17:00').time())) |      # end of Friday
+          (dweek_ == 6) |                                                      # whole Saturday (just in case)
+          ((dweek_ == 7) & (time_ <= pd.to_datetime('18:00').time()))] = 1     # beginning of Sunday
+
+    # apply the strategy
+    ##############################################################
+    XAG = data2['XAG']
+
+    # create a dataframe to store results
+    # loop over different parameter combinations
+    for signalEMA in signalEMA_parameters:
+        print(f"signalEMA = {signalEMA}")
+        for slowEMA in slowEMA_parameters:
+            for volat_sd in volat_sd_parameters:
+                for m in m_parameters:
+                    # We calculate the appropriate EMA
+                    signalEMA_values = XAG.ewm(span=signalEMA).mean().to_numpy()
+                    slowEMA_values = XAG.ewm(span=slowEMA).mean().to_numpy()
+
+                    # We calculate the standard deviation
+                    volat_sd_values = XAG.rolling(window=volat_sd).std().to_numpy()
+
+                    # Insert NaNs wherever the original price is missing
+                    signalEMA_values[XAG.isna()] = np.nan
+                    slowEMA_values[XAG.isna()] = np.nan
+                    volat_sd_values[XAG.isna()] = np.nan
+
+                    # Calculate position for momentum strategy
+                    pos_mom = positionVB(signal=signalEMA_values,
+                                         lower=slowEMA_values - m * volat_sd_values,
+                                         upper=slowEMA_values + m * volat_sd_values,
+                                         pos_flat=pos_flat,
+                                         strategy="mom")
+
+                    pos_mr = -pos_mom
+
+                    # Calculate gross pnl
+                    pnl_gross_mom = np.where(np.isnan(pos_mom * XAG.diff()), 0, pos_mom * XAG.diff() * 5000)
+                    pnl_gross_mr = np.where(np.isnan(pos_mr * XAG.diff()), 0, pos_mr * XAG.diff() * 5000)
+                    # point value for XAG
+
+                     # Add stop loss condition
+                    # Calculate cumulative PnL for each day and apply stop loss
+                    pnl_gross_mom_series = pd.Series(pnl_gross_mom, index=data2.index)
+                    pnl_gross_mr_series = pd.Series(pnl_gross_mr, index=data2.index)
+
+                    # Define stop loss threshold (e.g., -1000 per day)
+                    stop_loss_threshold = -1000
+
+                    # Calculate cumulative daily PnL
+                    daily_cumul_pnl_mom = pnl_gross_mom_series.groupby(data2.index.date).cumsum()
+                    daily_cumul_pnl_mr = pnl_gross_mr_series.groupby(data2.index.date).cumsum()
+
+                    # Create stop loss mask (stop trading for rest of day if threshold hit)
+                    stop_loss_triggered_mom = (daily_cumul_pnl_mom <= stop_loss_threshold).groupby(data2.index.date).cummax()
+                    stop_loss_triggered_mr = (daily_cumul_pnl_mr <= stop_loss_threshold).groupby(data2.index.date).cummax()
+
+                    # Apply stop loss by setting position to 0 after trigger
+                    pos_mom_sl = pos_mom.copy()
+                    pos_mom_sl[stop_loss_triggered_mom] = 0
+                    pos_mr_sl = pos_mr.copy()
+                    pos_mr_sl[stop_loss_triggered_mr] = 0
+
+                    # Recalculate PnL with stop loss
+                    pnl_gross_mom = np.where(np.isnan(pos_mom_sl * data2['XAG'].diff()), 0, pos_mom_sl * data2['XAG'].diff() * 5000)
+                    pnl_gross_mr = np.where(np.isnan(pos_mr_sl * data2['XAG'].diff()), 0, pos_mr_sl * data2['XAG'].diff() * 5000)
+                    # Calculate number of transactions
+                    ntrans = np.abs(np.diff(pos_mom, prepend=0))
+
+                    # Calculate net pnl
+                    pnl_net_mom = pnl_gross_mom - ntrans * 10  # cost $10 per transaction on XAG
+                    pnl_net_mr = pnl_gross_mr - ntrans * 10  # cost $10 per transaction on XAG
+
+                    # Aggregate to daily data
+                    pnl_gross_mom = pd.Series(pnl_gross_mom)
+                    pnl_gross_mom.index = XAG.index.time
+                    pnl_gross_mom_d = pnl_gross_mom.groupby(XAG.index.date).sum()
+                    pnl_gross_mr = pd.Series(pnl_gross_mr)
+                    pnl_gross_mr.index = XAG.index.time
+                    pnl_gross_mr_d = pnl_gross_mr.groupby(XAG.index.date).sum()
+
+                    pnl_net_mom = pd.Series(pnl_net_mom)
+                    pnl_net_mom.index = XAG.index.time
+                    pnl_net_mom_d = pnl_net_mom.groupby(XAG.index.date).sum()
+                    pnl_net_mr = pd.Series(pnl_net_mr)
+                    pnl_net_mr.index = XAG.index.time
+                    pnl_net_mr_d = pnl_net_mr.groupby(XAG.index.date).sum()
+
+                    ntrans = pd.Series(ntrans)
+                    ntrans.index = XAG.index.time
+                    ntrans_d = ntrans.groupby(XAG.index.date).sum()
+
+                    # Calculate Sharpe Ratio and PnL
+                    gross_SR_mom = mySR(pnl_gross_mom_d, scale=252)
+                    net_SR_mom = mySR(pnl_net_mom_d, scale=252)
+                    gross_PnL_mom = pnl_gross_mom_d.sum()
+                    net_PnL_mom = pnl_net_mom_d.sum()
+                    gross_SR_mr = mySR(pnl_gross_mr_d, scale=252)
+                    net_SR_mr = mySR(pnl_net_mr_d, scale=252)
+                    gross_PnL_mr = pnl_gross_mr_d.sum()
+                    net_PnL_mr = pnl_net_mr_d.sum()
+
+                    av_daily_ntrans = ntrans_d.mean()
+
+                    stat_mom = (net_SR_mom - 0.5) * np.maximum(0, np.log(np.abs(net_PnL_mom / 1000)))
+                    stat_mr = (net_SR_mr - 0.5) * np.maximum(0, np.log(np.abs(net_PnL_mr / 1000)))
+                    # Collect the necessary results into one object
+                    summary = pd.DataFrame({
+                        'signalEMA': signalEMA,
+                        'slowEMA': slowEMA,
+                        'volat_sd': volat_sd,
+                        'm': m,
+                        'quarter': quarter,
+                        'gross_SR_mom': gross_SR_mom,
+                        'net_SR_mom': net_SR_mom,
+                        'gross_PnL_mom': gross_PnL_mom,
+                        'net_PnL_mom': net_PnL_mom,
+                        'gross_SR_mr': gross_SR_mr,
+                        'net_SR_mr': net_SR_mr,
+                        'gross_PnL_mr': gross_PnL_mr,
+                        'net_PnL_mr': net_PnL_mr,
+                        'av_daily_ntrans': av_daily_ntrans,
+                        'stat_mom': stat_mom,
+                        'stat_mr': stat_mr
+                    }, index=[0])
+
+                    # Append the results to the summary
+                    summary_all_breakout_stoploss = pd.concat([summary_all_breakout_stoploss, summary], ignore_index=True)
+
+summary_all_breakout_stoploss["signalEMA_slowEMA"] = (
+    summary_all_breakout_stoploss["signalEMA"].astype(int).astype(str).str.zfill(3) + "_" +
+    summary_all_breakout_stoploss["slowEMA"].astype(int).astype(str).str.zfill(3)
+)
+
+summary_all_breakout_stoploss["volat_sd_m"] = (
+    summary_all_breakout_stoploss["volat_sd"].astype(int).astype(str).str.zfill(3) + "_" +
+    summary_all_breakout_stoploss["m"].astype(str)
+)
+
+summary_all_breakout_stoploss.head()
+```
+
+```{python}
+#| echo: false
+#| 
+aggregated_stats_breakout_stoploss = (
+    summary_all_breakout_stoploss
+    .groupby(['signalEMA_slowEMA', 'volat_sd_m'], as_index=False)
+    .agg(
+        stat_mom_total=('stat_mom', 'sum'),
+        stat_mr_total=('stat_mr', 'sum'),
+        quarters_count=('quarter', 'nunique'),
+        net_SR_mom_mean=('net_SR_mom', 'mean'),
+        net_SR_mr_mean=('net_SR_mr', 'mean'),
+        net_PnL_mom_total=('net_PnL_mom', 'sum'),
+        net_PnL_mr_total=('net_PnL_mr', 'sum'),
+        av_daily_ntrans_mean=('av_daily_ntrans', 'mean')
+    )
+)
+
+aggregated_stats_breakout_stoploss['stat_mom_total'] = aggregated_stats_breakout_stoploss['stat_mom_total'].round(2)
+aggregated_stats_breakout_stoploss['stat_mr_total'] = aggregated_stats_breakout_stoploss['stat_mr_total'].round(2)
+```
+
+```{python}
+#| echo: false
+
+plot_heatmap(
+    df=aggregated_stats_breakout_stoploss,
+    value_col='stat_mom_total',
+    index_col='signalEMA_slowEMA',
+    columns_col='volat_sd_m',
+    title='Aggregated Stat Momentum over all quarters')
+
+plot_heatmap(
+    df=aggregated_stats_breakout_stoploss,
+    value_col='stat_mr_total',
+    index_col='signalEMA_slowEMA',
+    columns_col='volat_sd_m',
+    title='Aggregated Stat Mean Reversion over all quarters'
+)
+
+```
+
+We can see that stop-loss condition improved the results even further. Therefore, we have decided to include it in our final strategy implementation.
 
 ## Finally selected strategy for **group 2**
 
